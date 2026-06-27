@@ -49,3 +49,20 @@ def test_goto_validation_converts_meters_from_home_to_latlon():
 
     assert north_m == pytest.approx(50, abs=0.1)
     assert east_m == pytest.approx(25, abs=0.1)
+
+
+def test_survey_validation_rejects_unsafe_pattern_before_flight():
+    from robotto_drone_core import survey
+
+    waypoints = survey.generate_lawnmower(
+        width_m=600,
+        height_m=30,
+        spacing_m=10,
+        altitude_m=15,
+    )
+
+    result = survey.validate_survey_waypoints(waypoints, config.SAFETY_LIMITS)
+
+    assert result["ok"] is False
+    assert result["refused"] is True
+    assert result["waypoint_index"] == 0

@@ -223,8 +223,12 @@ behavior still needs verification against a running PX4 SITL instance.
   LLM); convert to lat/lon/AMSL internally; geofence-checked
 - 🟡 `land()` / `return_home()` — `land()` exists; `return_home()` is still planned
 - 🟡 Telemetry-confirmed completion (poll until target reached)
-- ⬜ `fly_survey_pattern(...)` — lawnmower generator; the flashiest single demo
-  verb. Build last, as a composition of `goto`s.
+- 🟡 `fly_survey_pattern(...)` — lawnmower generator; code-complete as a
+  composition of `goto`s with upfront waypoint validation, pending live-SITL
+  verification.
+- 🟡 Multi-drone foundation — code-complete for multiple local SITL connections,
+  per-drone safety gates, `list_drones`, `connect_drone(s)`, and per-drone
+  command dispatch. Live multi-instance behavior still needs local verification.
 - ⬜ Record a "sentence → simulated flight, with a visible safety refusal" demo.
 
 ### Core (`robotto-drone-core`) evolution
@@ -238,8 +242,9 @@ behavior still needs verification against a running PX4 SITL instance.
 ### Longer-term (vision; resolve with founders before building deep)
 - ⬜ Live-docs MCP server (version-pinned ROS 2 / PX4 / MAVLink) to stop AI
   assistants hallucinating deprecated APIs
-- ⬜ Multi-drone / swarm-level command verbs in SITL (on-theme for a swarm
-  company)
+- ⬜ Swarm-level command verbs in SITL (formations, collision avoidance,
+  leader/follower, area search). The multi-drone plumbing exists, but these
+  abstractions require a founder conversation before implementation.
 - ⬜ Command authentication, **audit logging of every LLM-issued command**, and
   anomaly detection on the command stream — the security layer that makes this a
   defensible role as the collaboration deepens

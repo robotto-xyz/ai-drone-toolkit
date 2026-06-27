@@ -12,6 +12,7 @@ back an MCP server, a CLI, or a web app without duplication.
 | `robotto_drone_core.ulog_tools` | Parse PX4 ULog (`.ulg`) flight logs: list recorded uORB topics and build a high-level flight summary (duration, hardware/firmware, flight-mode timeline, dropouts, warnings/errors). |
 | `robotto_drone_core.safety` | Pure safety checks for simulation-only drone command tools: local SITL gate, altitude limit, geofence, speed cap, arming preconditions, and structured refusals. |
 | `robotto_drone_core.frames` | Coordinate-frame and altitude helpers: NED/ENU conversion, relative/AMSL altitude conversion, meters-from-home to lat/lon, and target-reached checks. |
+| `robotto_drone_core.survey` | Pure lawnmower survey waypoint generation and upfront validation helpers. |
 
 ## Usage
 

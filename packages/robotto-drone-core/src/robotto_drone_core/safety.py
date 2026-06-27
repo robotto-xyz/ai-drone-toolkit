@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 SIMULATION_ONLY = True
 DEFAULT_SITL_PORT = 14540
+DEFAULT_SITL_PORTS = frozenset({14540, 14541, 14542})
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,7 @@ def check_simulation_only(
     *,
     simulation_only: bool = SIMULATION_ONLY,
     sitl_port: int = DEFAULT_SITL_PORT,
+    sitl_ports: frozenset[int] | set[int] | tuple[int, ...] | None = None,
 ) -> dict[str, Any]:
     """Verify a MAVSDK address targets a local PX4 SITL endpoint.
 
@@ -94,9 +96,11 @@ def check_simulation_only(
             "Simulation-only mode refuses non-localhost MAVSDK address: "
             f"{address}"
         )
-    if port != sitl_port:
+    allowed_ports = set(sitl_ports or DEFAULT_SITL_PORTS or {sitl_port})
+    if port not in allowed_ports:
         return refused(
-            f"Simulation-only mode expects PX4 SITL port {sitl_port}, got {port}"
+            "Simulation-only mode expects PX4 SITL port "
+            f"{sorted(allowed_ports)}, got {port}"
         )
 
     return ok(address=address, host=host, port=port)

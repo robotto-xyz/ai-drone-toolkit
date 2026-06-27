@@ -5,6 +5,12 @@ from __future__ import annotations
 from robotto_drone_core.safety import SafetyLimits
 
 DEFAULT_SIM_ADDRESS = "udpin://0.0.0.0:14540"
+DEFAULT_DRONE_ID = "default"
+DEFAULT_MULTI_DRONE_ADDRESSES = {
+    "drone-1": "udpin://0.0.0.0:14540",
+    "drone-2": "udpin://0.0.0.0:14541",
+    "drone-3": "udpin://0.0.0.0:14542",
+}
 DEFAULT_YAW_DEG = 0.0
 DEFAULT_CONNECT_TIMEOUT_S = 30.0
 DEFAULT_REACH_TIMEOUT_S = 60.0

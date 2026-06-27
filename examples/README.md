@@ -39,6 +39,8 @@ uv run python examples/<example_name>.py [path/to/flight.ulg]
 | [`sitl_connect_state.py`](sitl_connect_state.py) | Connect to a running PX4 SITL instance and print read-only drone state. Requires live SITL. |
 | [`sitl_takeoff_land.py`](sitl_takeoff_land.py) | Connect, take off to 15 m, wait briefly, and land. Requires live SITL. |
 | [`sitl_fly_path.py`](sitl_fly_path.py) | Fly a small multi-waypoint meters-from-home path through `goto`, then land. Requires live SITL. |
+| [`sitl_fly_survey.py`](sitl_fly_survey.py) | Fly a centered lawnmower survey pattern, return home, then land. Requires live SITL. |
+| [`sitl_multi_drone.py`](sitl_multi_drone.py) | Connect two local PX4 SITL instances and command each independently. Requires multiple live SITL instances. |
 
 ```bash
 # Summarize the sample log (or your own):
@@ -52,6 +54,8 @@ uv run python examples/flight_health_check.py
 uv run python examples/sitl_connect_state.py
 uv run python examples/sitl_takeoff_land.py
 uv run python examples/sitl_fly_path.py
+uv run python examples/sitl_fly_survey.py
+uv run python examples/sitl_multi_drone.py
 ```
 
 ## PX4 SITL examples
@@ -66,6 +70,8 @@ make px4_sitl gz_x500
 
 They use the default local MAVSDK endpoint `udpin://0.0.0.0:14540`. The
 simulation-only safety gate refuses non-localhost or wrong-port addresses.
+`sitl_multi_drone.py` additionally expects `drone-2` on
+`udpin://0.0.0.0:14541`.
 
 ## Contributing an example
 

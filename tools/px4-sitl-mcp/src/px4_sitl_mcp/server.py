@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastmcp import FastMCP
 
 from . import config
-from .drone import drone
+from .drone import drone, fleet
 
 mcp = FastMCP(
     name="px4-sitl-commander",
@@ -19,8 +19,8 @@ mcp = FastMCP(
         "Always connect with connect_sim first, inspect state with "
         "get_drone_state, and respect structured refusals from the safety "
         "layer. Coordinates for goto are meters-from-home: north/east offsets "
-        "and relative altitude in meters. Never use these tools for real "
-        "hardware."
+        "and relative altitude in meters. Survey patterns validate the entire "
+        "path before flying. Never use these tools for real hardware."
     ),
 )
 
@@ -93,6 +93,93 @@ async def goto(north_m: float, east_m: float, altitude_m: float) -> dict:
     """
 
     return await _guard_tool(lambda: drone.goto(north_m, east_m, altitude_m))
+
+
+@mcp.tool
+async def fly_survey_pattern(
+    width_m: float,
+    height_m: float,
+    spacing_m: float,
+    altitude_m: float,
+) -> dict:
+    """Fly a centered lawnmower survey pattern in PX4 SITL.
+
+    `width_m` spans east/west, `height_m` spans north/south, `spacing_m` is the
+    distance between passes, and `altitude_m` is relative altitude above home.
+    The generated waypoints use meters-from-home coordinates. The entire pattern
+    is validated against altitude and geofence limits before any waypoint is
+    flown; if any waypoint is unsafe, the whole pattern is refused up front.
+    """
+
+    return await _guard_tool(
+        lambda: drone.fly_survey_pattern(width_m, height_m, spacing_m, altitude_m)
+    )
+
+
+@mcp.tool
+async def connect_drone(drone_id: str, address: str) -> dict:
+    """Connect one named local PX4 SITL drone.
+
+    Each `address` is independently validated by the simulation-only gate and
+    must be a local UDP SITL endpoint. This proves multi-connection plumbing; it
+    does not create swarm-level behavior.
+    """
+
+    return await _guard_tool(lambda: fleet.connect_drone(drone_id, address))
+
+
+@mcp.tool
+async def connect_drones(count: int) -> dict:
+    """Connect `count` local PX4 SITL drones using documented default addresses.
+
+    Defaults are `drone-1` -> port 14540, `drone-2` -> 14541, and `drone-3` ->
+    14542. Use `connect_drone` for explicit addresses if your PX4 setup differs.
+    """
+
+    return await _guard_tool(lambda: fleet.connect_drones(count))
+
+
+@mcp.tool
+async def list_drones() -> dict:
+    """List known simulated drones and local connection bookkeeping.
+
+    This is read-only and does not contact PX4. Use `get_drone_state` or
+    `command_drone(..., action="get_state")` to read live telemetry.
+    """
+
+    return fleet.list_drones()
+
+
+@mcp.tool
+async def command_drone(
+    drone_id: str,
+    action: str,
+    altitude_m: float | None = None,
+    north_m: float | None = None,
+    east_m: float | None = None,
+    width_m: float | None = None,
+    height_m: float | None = None,
+    spacing_m: float | None = None,
+) -> dict:
+    """Issue one existing single-drone action to a named simulated drone.
+
+    Supported actions are `get_state`, `takeoff`, `goto`, `land`, and
+    `fly_survey_pattern`. This is intentionally per-drone command plumbing, not
+    formation control, collision avoidance, or swarm-level intent.
+    """
+
+    return await _guard_tool(
+        lambda: fleet.command_drone(
+            drone_id,
+            action,
+            altitude_m=altitude_m,
+            north_m=north_m,
+            east_m=east_m,
+            width_m=width_m,
+            height_m=height_m,
+            spacing_m=spacing_m,
+        )
+    )
 
 
 def main() -> None:

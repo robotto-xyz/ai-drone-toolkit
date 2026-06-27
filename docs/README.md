@@ -57,5 +57,6 @@ For usage today, see:
 
 Looking for runnable code? Head to the [`examples/`](../examples) directory —
 `analyze_ulog.py` and `flight_health_check.py` drive the core parsing layer;
-`sitl_connect_state.py`, `sitl_takeoff_land.py`, and `sitl_fly_path.py` require
-a running PX4 SITL instance.
+`sitl_connect_state.py`, `sitl_takeoff_land.py`, `sitl_fly_path.py`,
+`sitl_fly_survey.py`, and `sitl_multi_drone.py` require one or more running PX4
+SITL instances.

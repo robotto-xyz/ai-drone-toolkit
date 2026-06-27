@@ -8,6 +8,8 @@ from robotto_drone_core import safety
 def test_simulation_gate_accepts_local_sitl_addresses():
     accepted = [
         "udpin://0.0.0.0:14540",
+        "udpin://0.0.0.0:14541",
+        "udpin://0.0.0.0:14542",
         "udp://:14540",
         "udp://127.0.0.1:14540",
         "udp://localhost:14540",

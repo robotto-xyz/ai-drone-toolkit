@@ -8,7 +8,7 @@ frame helpers.
 
 from __future__ import annotations
 
-from . import frames, safety, ulog_tools
+from . import frames, safety, survey, ulog_tools
 from .ulog_tools import ULogError, get_log_summary, list_log_topics
 
 __version__ = "0.1.0"
@@ -17,6 +17,7 @@ __all__ = [
     "ulog_tools",
     "safety",
     "frames",
+    "survey",
     "ULogError",
     "get_log_summary",
     "list_log_topics",

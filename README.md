@@ -56,6 +56,7 @@ uv run python examples/flight_health_check.py /absolute/path/to/flight.ulg
 
 # Requires a running PX4 SITL instance:
 uv run python examples/sitl_connect_state.py
+uv run python examples/sitl_fly_survey.py
 ```
 
 See [`examples/README.md`](examples/README.md) for details.

@@ -15,7 +15,7 @@ from typing import Any
 from mavsdk import System
 from mavsdk.action import ActionError
 
-from robotto_drone_core import frames, safety
+from robotto_drone_core import frames, safety, survey
 
 from . import config
 
@@ -129,6 +129,15 @@ class SimDrone:
             return home
 
         return safety.ok(address=self.address, connected=True, home=home["home"])
+
+    def summary(self) -> dict[str, Any]:
+        """Return local connection bookkeeping without touching MAVSDK."""
+
+        return {
+            "address": self.address,
+            "connected": self._connected,
+            "home_cached": self._home_ready(),
+        }
 
     async def get_state(self) -> dict[str, Any]:
         """Return current read-only drone state as JSON-serializable data."""
@@ -391,5 +400,205 @@ class SimDrone:
             **reached,
         )
 
+    async def fly_survey_pattern(
+        self,
+        width_m: float,
+        height_m: float,
+        spacing_m: float,
+        altitude_m: float,
+    ) -> dict[str, Any]:
+        """Fly a centered lawnmower survey, validating the whole path first."""
 
-drone = SimDrone()
+        try:
+            waypoints = survey.generate_lawnmower(
+                width_m=width_m,
+                height_m=height_m,
+                spacing_m=spacing_m,
+                altitude_m=altitude_m,
+            )
+        except ValueError as exc:
+            return safety.refused(str(exc))
+
+        validation = survey.validate_survey_waypoints(
+            waypoints,
+            config.SAFETY_LIMITS,
+        )
+        if not validation["ok"]:
+            return validation
+
+        completed: list[dict[str, Any]] = []
+        for index, waypoint in enumerate(waypoints):
+            result = await self.goto(
+                waypoint["north_m"],
+                waypoint["east_m"],
+                waypoint["altitude_m"],
+            )
+            if not result["ok"]:
+                return {
+                    **result,
+                    "action": "fly_survey_pattern",
+                    "failed_waypoint_index": index,
+                    "completed_waypoints": completed,
+                }
+            completed.append(
+                {
+                    "index": index,
+                    "north_m": waypoint["north_m"],
+                    "east_m": waypoint["east_m"],
+                    "altitude_m": waypoint["altitude_m"],
+                }
+            )
+
+        home = await self.goto(0.0, 0.0, altitude_m)
+        if not home["ok"]:
+            return {
+                **home,
+                "action": "fly_survey_pattern",
+                "completed_waypoints": completed,
+                "return_home_failed": True,
+            }
+
+        return safety.ok(
+            action="fly_survey_pattern",
+            accepted=True,
+            num_waypoints=len(waypoints),
+            completed_waypoints=completed,
+            returned_home=True,
+        )
+
+
+class DroneFleet:
+    """Manage multiple local PX4 SITL connections keyed by drone id."""
+
+    def __init__(
+        self,
+        *,
+        drone_factory: type[SimDrone] = SimDrone,
+        default_drone_id: str = config.DEFAULT_DRONE_ID,
+    ) -> None:
+        self.drone_factory = drone_factory
+        self.default_drone_id = default_drone_id
+        self._drones: dict[str, SimDrone] = {
+            default_drone_id: drone_factory(config.DEFAULT_SIM_ADDRESS)
+        }
+
+    @property
+    def default_drone(self) -> SimDrone:
+        return self._drones[self.default_drone_id]
+
+    def get_drone(
+        self,
+        drone_id: str = config.DEFAULT_DRONE_ID,
+        address: str | None = None,
+    ) -> SimDrone:
+        if drone_id not in self._drones:
+            self._drones[drone_id] = self.drone_factory(
+                address or config.DEFAULT_SIM_ADDRESS
+            )
+        return self._drones[drone_id]
+
+    def list_drones(self) -> dict[str, Any]:
+        return safety.ok(
+            drones={
+                drone_id: drone.summary()
+                for drone_id, drone in sorted(self._drones.items())
+            }
+        )
+
+    async def connect_drone(
+        self,
+        drone_id: str,
+        address: str,
+    ) -> dict[str, Any]:
+        gate = safety.check_simulation_only(address)
+        if not gate["ok"]:
+            return {**gate, "drone_id": drone_id}
+
+        target = self.get_drone(drone_id, address)
+        result = await target.connect(address)
+        return {**result, "drone_id": drone_id}
+
+    async def connect_drones(self, count: int) -> dict[str, Any]:
+        if count <= 0:
+            return safety.refused("count must be positive")
+        if count > len(config.DEFAULT_MULTI_DRONE_ADDRESSES):
+            return safety.refused(
+                "count exceeds documented default multi-drone addresses",
+                max_count=len(config.DEFAULT_MULTI_DRONE_ADDRESSES),
+            )
+
+        results: dict[str, Any] = {}
+        for drone_id, address in list(config.DEFAULT_MULTI_DRONE_ADDRESSES.items())[
+            :count
+        ]:
+            results[drone_id] = await self.connect_drone(drone_id, address)
+        ok = all(result["ok"] for result in results.values())
+        return {
+            "ok": ok,
+            "refused": not ok,
+            "results": results,
+        }
+
+    async def command_drone(
+        self,
+        drone_id: str,
+        action: str,
+        *,
+        altitude_m: float | None = None,
+        north_m: float | None = None,
+        east_m: float | None = None,
+        width_m: float | None = None,
+        height_m: float | None = None,
+        spacing_m: float | None = None,
+    ) -> dict[str, Any]:
+        normalized = action.lower()
+        supported_actions = [
+            "get_state",
+            "takeoff",
+            "goto",
+            "land",
+            "fly_survey_pattern",
+        ]
+        if normalized not in supported_actions:
+            return safety.refused(
+                f"Unsupported per-drone action: {action}",
+                supported_actions=supported_actions,
+            )
+
+        target = self.get_drone(drone_id)
+
+        if normalized == "get_state":
+            result = await target.get_state()
+        elif normalized == "takeoff":
+            if altitude_m is None:
+                return safety.refused("takeoff requires altitude_m")
+            result = await target.takeoff(altitude_m)
+        elif normalized == "goto":
+            if altitude_m is None or north_m is None or east_m is None:
+                return safety.refused("goto requires north_m, east_m, and altitude_m")
+            result = await target.goto(north_m, east_m, altitude_m)
+        elif normalized == "land":
+            result = await target.land()
+        elif normalized == "fly_survey_pattern":
+            if (
+                width_m is None
+                or height_m is None
+                or spacing_m is None
+                or altitude_m is None
+            ):
+                return safety.refused(
+                    "fly_survey_pattern requires width_m, height_m, spacing_m, "
+                    "and altitude_m"
+                )
+            result = await target.fly_survey_pattern(
+                width_m,
+                height_m,
+                spacing_m,
+                altitude_m,
+            )
+
+        return {**result, "drone_id": drone_id, "command": normalized}
+
+
+fleet = DroneFleet()
+drone = fleet.default_drone
