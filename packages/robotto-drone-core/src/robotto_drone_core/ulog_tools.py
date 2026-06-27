@@ -3,7 +3,7 @@
 This module deliberately knows nothing about MCP. It takes file paths and
 returns plain dicts/lists of JSON-serializable primitives. That separation
 makes the logic unit-testable without spinning up a server, and lets you
-reuse it from a CLI, a web app, or the MCP server in server.py.
+reuse it from a CLI, a web app, or any MCP server in the toolkit.
 """
 
 from __future__ import annotations

@@ -1,16 +1,15 @@
-"""Tests run against the official PX4 sample log.
+"""Tests for the ULog parsing layer, run against the official PX4 sample log.
 
 Download the fixture once before running:
-    curl -sL https://raw.githubusercontent.com/PX4/pyulog/main/test/sample.ulg \
-        -o tests/sample.ulg
-    pytest
+    make sample-log
+    make test
 """
 
 import os
 
 import pytest
 
-from px4_ulog_mcp import ulog_tools
+from robotto_drone_core import ulog_tools
 
 SAMPLE = os.path.join(os.path.dirname(__file__), "sample.ulg")
 pytestmark = pytest.mark.skipif(

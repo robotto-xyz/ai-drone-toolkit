@@ -1,7 +1,22 @@
 [project]
 name = "ai-drone-toolkit"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI Drone Toolkit - MCP servers and tools for intelligent drone development (PX4 and beyond)"
 readme = "README.md"
 requires-python = ">=3.12"
+license = { text = "MIT" }
 dependencies = []
+
+[tool.uv.workspace]
+members = [
+    "packages/*",
+    "tools/*",
+]
+
+[tool.uv.sources]
+robotto-drone-core = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]

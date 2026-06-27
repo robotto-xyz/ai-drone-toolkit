@@ -14,8 +14,7 @@ or via the installed console script:
 from __future__ import annotations
 
 from fastmcp import FastMCP
-
-from . import ulog_tools
+from robotto_drone_core import ulog_tools
 
 mcp = FastMCP(
     name="px4-ulog-analyzer",

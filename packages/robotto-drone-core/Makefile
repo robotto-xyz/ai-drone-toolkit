@@ -7,7 +7,7 @@ sample-log:
 	curl -sL "$(SAMPLE_LOG_URL)" -o "$(SAMPLE_LOG)"
 
 test:
-	uv run --extra test pytest
+	uv run pytest
 
 check: sample-log test
 

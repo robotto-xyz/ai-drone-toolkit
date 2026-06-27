@@ -19,41 +19,43 @@ Both take an **absolute path** to a `.ulg` file.
 
 ## Install
 
+This tool lives at `tools/px4-ulog-mcp` inside the
+[AI Drone Toolkit](../../README.md) uv workspace. Clone the toolkit and sync
+once from its root:
+
 ```bash
-git clone https://github.com/robotto-xyz/px4-ulog-mcp.git
-cd px4-ulog-mcp
+git clone https://github.com/robotto-xyz/ai-drone-toolkit.git
+cd ai-drone-toolkit
 uv sync
 ```
 
-Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/). The flight-log
+parsing itself lives in the shared
+[`robotto-drone-core`](../../packages/robotto-drone-core) package; this tool is
+the thin MCP layer on top of it.
 
 ## Test
 
-Grab a sample log and run the test suite:
+The parsing logic — and its test suite — live in `robotto-drone-core`. Run
+them from that package:
 
 ```bash
+cd packages/robotto-drone-core
 make check
 ```
 
-This downloads `tests/sample.ulg` and runs `pytest` through the project `uv`
-environment. After the sample log exists, rerun tests with:
-
-```bash
-make test
-```
-
-Avoid running bare `pytest`; it can pick up unrelated global plugins from your
-machine.
+This downloads `tests/sample.ulg` and runs `pytest` through the workspace `uv`
+environment. After the sample log exists, rerun tests with `make test`.
 
 ## Try it
 
-You can also smoke-test the parsing layer with no MCP client:
+You can smoke-test the parsing layer directly, with no MCP client:
 
 ```python
 from pathlib import Path
-from px4_ulog_mcp import ulog_tools
+from robotto_drone_core import ulog_tools
 
-log_path = Path("tests/sample.ulg").resolve()
+log_path = Path("packages/robotto-drone-core/tests/sample.ulg").resolve()
 print(ulog_tools.get_log_summary(str(log_path)))
 ```
 
@@ -85,7 +87,7 @@ this project explicitly:
   "mcpServers": {
     "px4-ulog": {
       "command": "uv",
-      "args": ["--directory", "/absolute/path/to/px4-ulog-mcp", "run", "px4-ulog-mcp"]
+      "args": ["--directory", "/absolute/path/to/ai-drone-toolkit", "run", "px4-ulog-mcp"]
     }
   }
 }
@@ -94,7 +96,7 @@ this project explicitly:
 ### Claude Code
 
 ```bash
-claude mcp add px4-ulog -- uv --directory /absolute/path/to/px4-ulog-mcp run px4-ulog-mcp
+claude mcp add px4-ulog -- uv --directory /absolute/path/to/ai-drone-toolkit run px4-ulog-mcp
 ```
 
 or add the same block to `.mcp.json` in your project root.
@@ -122,8 +124,9 @@ This is a deliberately small v1. Natural follow-on tools:
 - `diagnose_flight(path)` — bundle the common "what went wrong" heuristics
   (EKF divergence, low battery, high vibration) into one opinionated call.
 
-The parsing logic lives in `ulog_tools.py` and is independent of MCP, so each new
-tool is a small function there plus a thin `@mcp.tool` wrapper in `server.py`.
+The parsing logic lives in `robotto_drone_core.ulog_tools` and is independent of
+MCP, so each new tool is a small function in the shared core package plus a thin
+`@mcp.tool` wrapper in `server.py`.
 
 ## License
 
