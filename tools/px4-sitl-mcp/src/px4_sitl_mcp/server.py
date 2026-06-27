@@ -166,6 +166,10 @@ async def command_drone(
     Supported actions are `get_state`, `takeoff`, `goto`, `land`, and
     `fly_survey_pattern`. This is intentionally per-drone command plumbing, not
     formation control, collision avoidance, or swarm-level intent.
+
+    Drone ids share one namespace with the single-drone tools: `drone-1` is the
+    same vehicle that `connect_sim`/`takeoff`/`goto`/`land` operate on (the
+    fleet default). `drone-2` and `drone-3` are additional local SITL instances.
     """
 
     return await _guard_tool(

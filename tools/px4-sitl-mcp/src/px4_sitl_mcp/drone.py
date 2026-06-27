@@ -27,6 +27,7 @@ class SimDrone:
         self.address = address
         self._system: System | None = None
         self._connected = False
+        self._ready = False
         self._home_lat_deg: float | None = None
         self._home_lon_deg: float | None = None
         self._home_amsl_m: float | None = None
@@ -85,13 +86,42 @@ class SimDrone:
         self._home_lat_deg = float(home.latitude_deg)
         self._home_lon_deg = float(home.longitude_deg)
         self._home_amsl_m = float(home.absolute_altitude_m)
-        return safety.ok(
-            home={
-                "latitude_deg": self._home_lat_deg,
-                "longitude_deg": self._home_lon_deg,
-                "absolute_altitude_m": self._home_amsl_m,
-            }
+        return safety.ok(home=self._home())
+
+    def _home(self) -> dict[str, float] | None:
+        if not self._home_ready():
+            return None
+        return {
+            "latitude_deg": self._home_lat_deg or 0.0,
+            "longitude_deg": self._home_lon_deg or 0.0,
+            "absolute_altitude_m": self._home_amsl_m or 0.0,
+        }
+
+    async def _apply_speed_limit(self) -> dict[str, Any]:
+        """Validate and push the configured speed cap to PX4 once on connect.
+
+        This is where the shared ``check_speed`` safety bound actually reaches
+        the vehicle: the geofence/altitude clamps gate position, this bounds how
+        fast PX4 flies between waypoints. MAVSDK's ``set_current_speed`` sets the
+        speed used for ``goto_location``/reposition; it is ephemeral (not stored
+        on the drone), so we re-apply it on each fresh connection.
+        """
+
+        speed = safety.check_speed(
+            config.SAFETY_LIMITS.max_speed_ms,
+            config.SAFETY_LIMITS,
         )
+        if not speed["ok"]:
+            return speed
+        try:
+            await self.system.action.set_current_speed(speed["speed_ms"])
+        except ActionError as exc:
+            return {
+                "ok": False,
+                "refused": False,
+                "reason": f"MAVSDK action failed setting speed cap: {exc}",
+            }
+        return safety.ok(max_speed_ms=speed["speed_ms"])
 
     async def connect(
         self,
@@ -105,6 +135,7 @@ class SimDrone:
             self.address = address
             self._system = None
             self._connected = False
+            self._ready = False
             self._home_lat_deg = None
             self._home_lon_deg = None
             self._home_amsl_m = None
@@ -112,6 +143,18 @@ class SimDrone:
         sim_gate = safety.check_simulation_only(self.address)
         if not sim_gate["ok"]:
             return sim_gate
+
+        # Idempotent fast path: once connected + healthy + home cached, never
+        # re-walk the health stream, re-cache home, or re-set the speed cap.
+        # Re-running these mid-flight (e.g. on every goto in a survey) is at best
+        # wasteful and at worst drifts the AMSL math if home re-caches differently.
+        if self._ready:
+            return safety.ok(
+                address=self.address,
+                connected=True,
+                ready=True,
+                home=self._home(),
+            )
 
         if not self._connected:
             await self.system.connect(system_address=self.address)
@@ -128,7 +171,12 @@ class SimDrone:
         if not home["ok"]:
             return home
 
-        return safety.ok(address=self.address, connected=True, home=home["home"])
+        speed = await self._apply_speed_limit()
+        if not speed["ok"]:
+            return speed
+
+        self._ready = True
+        return safety.ok(address=self.address, connected=True, ready=True, home=home["home"])
 
     def summary(self) -> dict[str, Any]:
         """Return local connection bookkeeping without touching MAVSDK."""
@@ -136,6 +184,7 @@ class SimDrone:
         return {
             "address": self.address,
             "connected": self._connected,
+            "ready": self._ready,
             "home_cached": self._home_ready(),
         }
 
@@ -297,6 +346,8 @@ class SimDrone:
                     target_north_m=target_north_m,
                     target_east_m=target_east_m,
                     target_altitude_m=target_altitude_m,
+                    horizontal_tolerance_m=config.GOTO_HORIZONTAL_TOLERANCE_M,
+                    vertical_tolerance_m=config.GOTO_VERTICAL_TOLERANCE_M,
                 ):
                     return safety.ok(
                         current_north_m=current_north_m,

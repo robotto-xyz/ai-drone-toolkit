@@ -20,8 +20,11 @@ The toolkit has **two product tracks**:
 1. **Read / diagnose** — backward-looking analysis of flight data. Offline,
    zero-risk. Shipping today: `px4-ulog-mcp` (PX4 `.ulg` flight-log inspection).
 2. **Command** — natural-language → *simulated* drone control. The mirror image:
-   intent → bounded action tools → PX4 SITL → telemetry back. Planned next:
-   `px4-sitl-mcp` (see Roadmap).
+ intent → bounded action tools → PX4 SITL → telemetry back. Shipping today:
+ `px4-sitl-mcp` (simulation-only PX4 SITL command). It is code-complete with
+ simulator-free tests for the safety, frame, fleet, and connection logic; its
+ live MAVSDK flight paths still need verification against a running PX4 SITL
+ (see Roadmap).
 
 The guiding product belief: **two genuinely-finished, polished servers beat six
 toy repos.** Finish things. Depth over breadth.
@@ -212,23 +215,31 @@ Status legend: ✅ done · 🟡 in progress · ⬜ planned
 The natural-language-to-drone track the CEO is most excited about. **Simulation-
 only.** The server mirrors the log analyzer's structure: `drone.py` (MAVSDK
 connection + raw actions), shared core safety/frame helpers, thin `server.py`
-wrappers. Current status: code complete with simulator-free tests; live flight
-behavior still needs verification against a running PX4 SITL instance.
+wrappers. **Status:** the tool is shipped and code-complete with simulator-free
+tests for safety, frames, fleet, and the connection lifecycle. Here ✅ means
+"code-complete + tested without a simulator"; the one remaining gate for the
+whole track is live verification against a running PX4 SITL (the trailing ⬜).
 
 - ✅ **Safety layer first** — `SIMULATION_ONLY` gate, `clamp_altitude`,
-  `check_geofence`, speed cap, arming interlock. Unit-tested with no simulator.
-- 🟡 `connect_sim()` / `get_drone_state()` — connect to SITL, read-only state
-- 🟡 `takeoff(altitude_m)` — arm + take off, altitude-clamped
-- 🟡 `goto(north_m, east_m, altitude_m)` — meters-from-home (intuitive for an
-  LLM); convert to lat/lon/AMSL internally; geofence-checked
+ `check_geofence`, speed cap (now pushed to PX4 via `set_current_speed` on
+ connect), arming interlock. Unit-tested with no simulator.
+- ✅ `connect_sim()` / `get_drone_state()` — connect to SITL, read-only state.
+ `connect()` is idempotent (caches home + speed cap once; never re-walks the
+ health stream or re-caches home mid-flight).
+- ✅ `takeoff(altitude_m)` — arm + take off promptly, altitude-clamped
+- ✅ `goto(north_m, east_m, altitude_m)` — meters-from-home (intuitive for an
+ LLM); convert to lat/lon/AMSL internally; geofence-checked; reached-check uses
+ a configurable settling tolerance so PX4's onboard controller doesn't trip
+ false timeouts
 - 🟡 `land()` / `return_home()` — `land()` exists; `return_home()` is still planned
-- 🟡 Telemetry-confirmed completion (poll until target reached)
-- 🟡 `fly_survey_pattern(...)` — lawnmower generator; code-complete as a
-  composition of `goto`s with upfront waypoint validation, pending live-SITL
-  verification.
-- 🟡 Multi-drone foundation — code-complete for multiple local SITL connections,
-  per-drone safety gates, `list_drones`, `connect_drone(s)`, and per-drone
-  command dispatch. Live multi-instance behavior still needs local verification.
+- ✅ Telemetry-confirmed completion (poll until target reached, within tolerance)
+- ✅ `fly_survey_pattern(...)` — lawnmower generator composed of `goto`s with
+ upfront whole-path waypoint validation
+- ✅ Multi-drone foundation — multiple local SITL connections, per-drone safety
+ gates, `list_drones`, `connect_drone(s)`, per-drone command dispatch. The
+ single-drone tools and fleet share one namespace (`drone-1` is the default).
+- ⬜ **Live-SITL verification** — fly every command path against a running PX4
+ SITL instance (single and multi-instance) before claiming live readiness.
 - ⬜ Record a "sentence → simulated flight, with a visible safety refusal" demo.
 
 ### Core (`robotto-drone-core`) evolution

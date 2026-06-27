@@ -38,7 +38,7 @@ Defaults:
 | `SIMULATION_ONLY` | `True` | Refuse any non-localhost/non-SITL MAVSDK address before commands can arm. |
 | `MAX_ALT_M` | `50 m` | Prevent LLM-generated commands such as "take off to 5000 meters" from reaching PX4. |
 | `GEOFENCE_RADIUS_M` | `200 m` | Keep `goto` targets inside a bounded meters-from-home radius. |
-| `MAX_SPEED_MS` | `10 m/s` | Bound commanded speed before it reaches MAVSDK. |
+| `MAX_SPEED_MS` | `10 m/s` | Validated by `check_speed` and pushed to PX4 as the max horizontal speed when a command tool connects. |
 | Arming preconditions | global position + home position healthy | Surface clear refusals before PX4 returns a lower-level command denial. |
 
 Safety functions return JSON-serializable results that an LLM can relay:

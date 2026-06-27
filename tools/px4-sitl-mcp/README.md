@@ -15,7 +15,7 @@ structured refusals an LLM can relay.
 
 | Tool | What it does | Safety checks |
 |------|--------------|---------------|
-| `connect_sim(address)` | Connect to local PX4 SITL and wait for healthy global/home position. | Local UDP SITL endpoint only. |
+| `connect_sim(address)` | Connect to local PX4 SITL, wait for healthy global/home position, and apply the speed cap. | Local UDP SITL endpoint only, `MAX_SPEED_MS` pushed to PX4 via `set_current_speed`. |
 | `get_drone_state()` | Read armed status, flight mode, position, relative altitude, and battery. | Read-only. |
 | `takeoff(altitude_m)` | Arm and take off promptly to a relative altitude above home. | Simulation gate, arming preconditions, `MAX_ALT_M`. |
 | `land()` | Land at the current position. | Requires the simulated drone to be armed. |
@@ -98,6 +98,12 @@ This repository's default convenience mapping is:
 | `drone-2` | `udpin://0.0.0.0:14541` |
 | `drone-3` | `udpin://0.0.0.0:14542` |
 
+The single-drone tools (`connect_sim`, `takeoff`, `goto`, `land`,
+`fly_survey_pattern`) and the fleet tools share **one** namespace: `drone-1` is
+the fleet default, i.e. the same vehicle the single-drone tools operate on.
+There is no separate hidden `default` drone pointed at the same `14540`
+endpoint. `connect_drones(n)` connects `drone-1 … drone-n`.
+
 Live multi-instance behavior is not verified by the automated test suite; run
 it locally with multiple PX4 SITL instances before claiming demo readiness.
 
@@ -176,6 +182,12 @@ Internally, the tool converts north/east offsets to latitude/longitude and
 converts relative altitude to absolute AMSL altitude because MAVSDK
 `goto_location` expects AMSL. PX4 local frame landmines (NED vs ENU, down is
 positive) are handled in `robotto_drone_core.frames`.
+
+`goto` polls telemetry until the target is reached within a settling tolerance
+(`GOTO_HORIZONTAL_TOLERANCE_M`, default 4 m; `GOTO_VERTICAL_TOLERANCE_M`,
+default 1.5 m, in `config.py`). PX4's onboard position controller parks a few
+meters from the commanded point rather than exactly on it, so a tighter
+tolerance would report false timeouts on waypoints the drone actually hit.
 
 ## Survey pattern
 

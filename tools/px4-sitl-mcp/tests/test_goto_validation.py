@@ -51,6 +51,31 @@ def test_goto_validation_converts_meters_from_home_to_latlon():
     assert east_m == pytest.approx(25, abs=0.1)
 
 
+def test_goto_uses_configurable_settling_tolerance():
+    # A drone that settles ~3.5 m horizontally from the target is "reached" with
+    # PX4's realistic settling radius, but would falsely time out under the old
+    # tight 2 m default.
+    kwargs = dict(
+        current_north_m=53.5,
+        current_east_m=25.0,
+        current_altitude_m=15.0,
+        target_north_m=50.0,
+        target_east_m=25.0,
+        target_altitude_m=15.0,
+    )
+
+    assert frames.reached_target(
+        horizontal_tolerance_m=config.GOTO_HORIZONTAL_TOLERANCE_M,
+        vertical_tolerance_m=config.GOTO_VERTICAL_TOLERANCE_M,
+        **kwargs,
+    )
+    assert not frames.reached_target(
+        horizontal_tolerance_m=2.0,
+        vertical_tolerance_m=1.0,
+        **kwargs,
+    )
+
+
 def test_survey_validation_rejects_unsafe_pattern_before_flight():
     from robotto_drone_core import survey
 
