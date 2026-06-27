@@ -41,7 +41,8 @@ ai-drone-toolkit/
 │                             # PX4 ULog parsing today; coordinate-frame,
 │                             # telemetry, and SAFETY helpers as the toolkit grows.
 ├── tools/
-│   └── px4-ulog-mcp/         # MCP server: inspect PX4 .ulg logs.
+│   ├── px4-ulog-mcp/         # MCP server: inspect PX4 .ulg logs.
+│   └── px4-sitl-mcp/         # MCP server: command PX4 SITL only.
 │                             # (future tools live here, one dir each)
 ├── examples/                 # Runnable scripts that drive core directly
 │                             # (no MCP client needed).
@@ -57,6 +58,7 @@ ai-drone-toolkit/
 ```bash
 uv sync --all-packages        # one venv for the whole workspace
 uv run px4-ulog-mcp           # run the ULog MCP server (stdio)
+uv run px4-sitl-mcp           # run the PX4 SITL command MCP server (stdio)
 uv run pytest                 # run all tests
 uv run python examples/analyze_ulog.py /abs/path/to/flight.ulg
 ```
@@ -143,6 +145,12 @@ for anything another tool might reuse — **especially safety logic.**
 Each tool ships a `.cursor/mcp.json` snippet in its README. The same stdio
 server works unmodified in Cursor, Claude Code, Claude Desktop, and Windsurf.
 
+### Current tool notes
+- `px4-ulog-mcp` is fully fixture-tested through `robotto_drone_core.ulog_tools`.
+- `px4-sitl-mcp` has simulator-free tests for safety and frame logic. Its
+  MAVSDK paths are code-complete but must be flight-verified by running PX4 SITL
+  locally; do not claim live command verification until that happens.
+
 ---
 
 ## 5. Domain landmines (read before touching flight data or commands)
@@ -200,29 +208,30 @@ Status legend: ✅ done · 🟡 in progress · ⬜ planned
 - ⬜ Round out docs + a short demo recording; this track is the credibility
   builder and should reach "finished" first.
 
-### Track 2 — Command (`px4-sitl-mcp`, new tool)
+### Track 2 — Command (`px4-sitl-mcp`)
 The natural-language-to-drone track the CEO is most excited about. **Simulation-
-only.** Mirror the log analyzer's structure: `drone.py` (MAVSDK connection + raw
-actions), `safety.py` (clamps, geofence, sim gate — promote reusable parts to
-core), thin `server.py` wrappers.
+only.** The server mirrors the log analyzer's structure: `drone.py` (MAVSDK
+connection + raw actions), shared core safety/frame helpers, thin `server.py`
+wrappers. Current status: code complete with simulator-free tests; live flight
+behavior still needs verification against a running PX4 SITL instance.
 
-- ⬜ **Safety layer first** — `SIMULATION_ONLY` gate, `clamp_altitude`,
+- ✅ **Safety layer first** — `SIMULATION_ONLY` gate, `clamp_altitude`,
   `check_geofence`, speed cap, arming interlock. Unit-tested with no simulator.
-- ⬜ `connect_sim()` / `get_drone_state()` — connect to SITL, read-only state
-- ⬜ `takeoff(altitude_m)` — arm + take off, altitude-clamped
-- ⬜ `goto(north_m, east_m, altitude_m)` — meters-from-home (intuitive for an
+- 🟡 `connect_sim()` / `get_drone_state()` — connect to SITL, read-only state
+- 🟡 `takeoff(altitude_m)` — arm + take off, altitude-clamped
+- 🟡 `goto(north_m, east_m, altitude_m)` — meters-from-home (intuitive for an
   LLM); convert to lat/lon/AMSL internally; geofence-checked
-- ⬜ `land()` / `return_home()`
-- ⬜ Telemetry-confirmed completion (poll until target reached)
+- 🟡 `land()` / `return_home()` — `land()` exists; `return_home()` is still planned
+- 🟡 Telemetry-confirmed completion (poll until target reached)
 - ⬜ `fly_survey_pattern(...)` — lawnmower generator; the flashiest single demo
   verb. Build last, as a composition of `goto`s.
 - ⬜ Record a "sentence → simulated flight, with a visible safety refusal" demo.
 
 ### Core (`robotto-drone-core`) evolution
 - ✅ PX4 ULog parsing helpers
-- ⬜ Coordinate-frame conversions (NED⇄ENU, AMSL⇄relative) — needed by track 2,
+- ✅ Coordinate-frame conversions (NED⇄ENU, AMSL⇄relative) — needed by track 2,
   unit-tested independently
-- ⬜ **Shared safety/verification primitives** — the crown jewel; reusable across
+- ✅ **Shared safety/verification primitives** — the crown jewel; reusable across
   every tool that ever commands a drone
 - ⬜ Telemetry parsing/normalization shared between read and command tracks
 

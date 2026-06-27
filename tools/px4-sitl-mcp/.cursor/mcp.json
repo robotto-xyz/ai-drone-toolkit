@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "px4-sitl": {
+      "command": "uv",
+      "args": ["run", "px4-sitl-mcp"]
+    }
+  }
+}

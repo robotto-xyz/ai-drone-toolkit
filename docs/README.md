@@ -8,16 +8,18 @@ bringing AI assistants closer to the robotics stack.
 
 | Path | Description |
 |------|-------------|
-| [`packages/robotto-drone-core`](../packages/robotto-drone-core) | Shared, MCP-agnostic parsers and utilities. Hosts the PX4 ULog parsing layer used across the toolkit. |
+| [`packages/robotto-drone-core`](../packages/robotto-drone-core) | Shared, MCP-agnostic parsers, safety checks, and coordinate-frame helpers. Hosts PX4 ULog parsing plus simulation-command safety/frames. |
 | [`tools/px4-ulog-mcp`](../tools/px4-ulog-mcp) | [Model Context Protocol](https://modelcontextprotocol.io) server that exposes PX4 ULog (`.ulg`) inspection as structured tools. A thin MCP layer over the core. |
-| [`examples/`](../examples) | Runnable scripts showing how to use the core package directly. |
+| [`tools/px4-sitl-mcp`](../tools/px4-sitl-mcp) | Simulation-only MCP server that exposes safe PX4 SITL command tools. Uses core safety/frame helpers before MAVSDK. |
+| [`examples/`](../examples) | Runnable scripts showing how to use the core package and tool layers directly. |
 | [`docs/`](.) | Project-wide documentation (you are here). |
 
 ## Architecture in one line
 
-Shared logic lives in `robotto-drone-core`; each tool (e.g. `px4-ulog-mcp`) is a
-thin, independently usable layer on top of it. The same parsing code can back an
-MCP server, a CLI, an example script, or a web app without duplication.
+Shared logic lives in `robotto-drone-core`; each tool (e.g. `px4-ulog-mcp` or
+`px4-sitl-mcp`) is a thin, independently usable layer on top of it. The same
+core code can back an MCP server, a CLI, an example script, or a web app without
+duplication.
 
 ## Getting started
 
@@ -48,8 +50,12 @@ For usage today, see:
   — the shared parsing API.
 - [`tools/px4-ulog-mcp/README.md`](../tools/px4-ulog-mcp/README.md) — install,
   wire into your editor, and analyze PX4 flight logs.
+- [`tools/px4-sitl-mcp/README.md`](../tools/px4-sitl-mcp/README.md) — connect
+  to PX4 SITL, inspect state, and issue simulation-only commands.
 
 ## Examples
 
 Looking for runnable code? Head to the [`examples/`](../examples) directory —
-`analyze_ulog.py` and `flight_health_check.py` both drive the core parsing layer.
+`analyze_ulog.py` and `flight_health_check.py` drive the core parsing layer;
+`sitl_connect_state.py`, `sitl_takeoff_land.py`, and `sitl_fly_path.py` require
+a running PX4 SITL instance.
