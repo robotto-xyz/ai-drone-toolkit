@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "px4-ulog": {
+      "command": "uv",
+      "args": ["run", "px4-ulog-mcp"]
+    }
+  }
+}
