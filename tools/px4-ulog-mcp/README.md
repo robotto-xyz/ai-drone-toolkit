@@ -26,7 +26,7 @@ once from its root:
 ```bash
 git clone https://github.com/robotto-xyz/ai-drone-toolkit.git
 cd ai-drone-toolkit
-uv sync
+uv sync --all-packages
 ```
 
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/). The flight-log
@@ -61,6 +61,10 @@ print(ulog_tools.get_log_summary(str(log_path)))
 
 Run this from the repository root. If your Python session is started from
 another directory, pass an absolute path to the `.ulg` file instead.
+
+For ready-made scripts, see the toolkit's
+[`examples/`](../../examples) directory (`analyze_ulog.py`,
+`flight_health_check.py`).
 
 ## Wire it into your editor
 

@@ -39,9 +39,26 @@ work on any member, e.g. run the PX4 ULog MCP server:
 uv run px4-ulog-mcp
 ```
 
+## Examples
+
+Runnable scripts live in [`examples/`](examples) and drive the shared core
+package directly — no MCP client needed:
+
+```bash
+# Summarize a flight log (defaults to the PX4 sample fixture):
+uv run python examples/analyze_ulog.py /absolute/path/to/flight.ulg
+
+# Flag warnings/errors and the flight-mode timeline:
+uv run python examples/flight_health_check.py /absolute/path/to/flight.ulg
+```
+
+See [`examples/README.md`](examples/README.md) for details.
+
 ## Documentation
 
 - [`docs/`](docs) — architecture and project-wide guides.
+- [`packages/robotto-drone-core/README.md`](packages/robotto-drone-core/README.md)
+  — the shared parsing API.
 - [`tools/px4-ulog-mcp/README.md`](tools/px4-ulog-mcp/README.md) — install,
   wire into your editor, and analyze flight logs.
 

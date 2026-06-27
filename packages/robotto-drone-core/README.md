@@ -25,7 +25,7 @@ print(ulog_tools.get_log_summary(str(log_path)))
 ## Develop
 
 This package is a member of the toolkit's uv workspace. From the repository
-root run `uv sync` once, then work on it like any other member.
+root run `uv sync --all-packages` once, then work on it like any other member.
 
 Run the parsing tests (downloads the official PX4 sample log first):
 
@@ -34,6 +34,14 @@ make check
 ```
 
 After the sample log exists, rerun tests with `make test`.
+
+## See it in action
+
+- [`tools/px4-ulog-mcp`](../../tools/px4-ulog-mcp) — wraps this package as an
+  MCP server.
+- [`examples/analyze_ulog.py`](../../examples/analyze_ulog.py) and
+  [`examples/flight_health_check.py`](../../examples/flight_health_check.py) —
+  drive `ulog_tools` directly.
 
 ## License
 
