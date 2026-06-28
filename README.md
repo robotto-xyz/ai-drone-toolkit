@@ -4,6 +4,8 @@
 
 # AI Drone Toolkit
 
+[![CI](https://github.com/robotto-xyz/ai-drone-toolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/robotto-xyz/ai-drone-toolkit/actions/workflows/ci.yml)
+
 MCP servers and tools for intelligent drone development (PX4 and beyond). The
 toolkit gives AI assistants (Cursor, Claude, etc.) structured tools to
 understand, debug, and reason about drone systems — starting with PX4 flight
