@@ -189,6 +189,12 @@ default 1.5 m, in `config.py`). PX4's onboard position controller parks a few
 meters from the commanded point rather than exactly on it, so a tighter
 tolerance would report false timeouts on waypoints the drone actually hit.
 
+`takeoff` is treated as complete once the drone climbs to within
+`TAKEOFF_REACH_TOLERANCE_M` (default 1 m) *below* the commanded altitude. PX4's
+auto-takeoff settles slightly **above** the requested altitude (observed holding
+~16.5 m for a 15 m command), so an exact-match check would never trigger; this
+overshoot is expected and counts as success.
+
 ## Survey pattern
 
 `fly_survey_pattern(width_m, height_m, spacing_m, altitude_m)` generates a

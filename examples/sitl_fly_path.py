@@ -25,29 +25,32 @@ WAYPOINTS = [
 
 
 async def main() -> int:
-    connect = await drone.connect()
-    print("connect:")
-    print(json.dumps(connect, indent=2))
-    if not connect.get("ok"):
-        return 1
-
-    takeoff = await drone.takeoff(15)
-    print("takeoff:")
-    print(json.dumps(takeoff, indent=2))
-    if not takeoff.get("ok"):
-        return 1
-
-    for north_m, east_m, altitude_m in WAYPOINTS:
-        result = await drone.goto(north_m, east_m, altitude_m)
-        print(f"goto north={north_m} east={east_m} altitude={altitude_m}:")
-        print(json.dumps(result, indent=2))
-        if not result.get("ok"):
+    try:
+        connect = await drone.connect()
+        print("connect:")
+        print(json.dumps(connect, indent=2))
+        if not connect.get("ok"):
             return 1
 
-    land = await drone.land()
-    print("land:")
-    print(json.dumps(land, indent=2))
-    return 0 if land.get("ok") else 1
+        takeoff = await drone.takeoff(15)
+        print("takeoff:")
+        print(json.dumps(takeoff, indent=2))
+        if not takeoff.get("ok"):
+            return 1
+
+        for north_m, east_m, altitude_m in WAYPOINTS:
+            result = await drone.goto(north_m, east_m, altitude_m)
+            print(f"goto north={north_m} east={east_m} altitude={altitude_m}:")
+            print(json.dumps(result, indent=2))
+            if not result.get("ok"):
+                return 1
+
+        land = await drone.land()
+        print("land:")
+        print(json.dumps(land, indent=2))
+        return 0 if land.get("ok") else 1
+    finally:
+        drone.close()
 
 
 if __name__ == "__main__":

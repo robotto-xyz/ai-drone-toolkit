@@ -18,7 +18,6 @@ DEFAULT_MULTI_DRONE_ADDRESSES = {
 DEFAULT_YAW_DEG = 0.0
 DEFAULT_CONNECT_TIMEOUT_S = 30.0
 DEFAULT_REACH_TIMEOUT_S = 60.0
-DEFAULT_POLL_INTERVAL_S = 0.25
 
 # PX4's onboard position controller (used by goto_location) settles near a
 # waypoint, not exactly on it. A tight 2 m horizontal tolerance can never
@@ -26,6 +25,13 @@ DEFAULT_POLL_INTERVAL_S = 0.25
 # the drone actually reached. Use a more realistic settling radius.
 GOTO_HORIZONTAL_TOLERANCE_M = 4.0
 GOTO_VERTICAL_TOLERANCE_M = 1.5
+
+# PX4's auto-takeoff climbs to the commanded altitude and then settles slightly
+# ABOVE it (observed ~1.5 m above a 15 m command, holding at ~16.5 m). An
+# abs(current - target) <= 1 m check never triggers and the takeoff falsely
+# times out. Treat takeoff as "reached" once the drone has climbed to within
+# this margin BELOW the target; overshoot above the target is expected and fine.
+TAKEOFF_REACH_TOLERANCE_M = 1.0
 
 SAFETY_LIMITS = SafetyLimits(
     max_alt_m=50.0,

@@ -39,6 +39,14 @@ class _FakeCore:
         return _stream([_Conn()])
 
 
+class _Position:
+    def __init__(self, relative_altitude_m: float) -> None:
+        self.relative_altitude_m = relative_altitude_m
+        self.absolute_altitude_m = relative_altitude_m
+        self.latitude_deg = _Home.latitude_deg
+        self.longitude_deg = _Home.longitude_deg
+
+
 class _FakeTelemetry:
     def __init__(self, counters: dict[str, Any]) -> None:
         self._counters = counters
@@ -50,6 +58,10 @@ class _FakeTelemetry:
         self._counters["home"] += 1
         return _stream([_Home()])
 
+    def position(self) -> AsyncIterator[Any]:
+        alts = self._counters.get("altitudes", [0.0])
+        return _stream([_Position(a) for a in alts])
+
 
 class _FakeAction:
     def __init__(self, counters: dict[str, Any]) -> None:
@@ -59,16 +71,30 @@ class _FakeAction:
         self._counters["set_speed"] += 1
         self._counters["last_speed"] = speed_m_s
 
+    async def set_takeoff_altitude(self, altitude_m: float) -> None:
+        self._counters["set_takeoff_altitude"] = altitude_m
+
+    async def arm(self) -> None:
+        self._counters["armed"] = True
+
+    async def takeoff(self) -> None:
+        if self._counters.get("takeoff_raises") is not None:
+            raise self._counters["takeoff_raises"]
+
 
 class _FakeSystem:
     def __init__(self, counters: dict[str, Any]) -> None:
         self._counters = counters
+        self._server_process = object()
         self.core = _FakeCore()
         self.telemetry = _FakeTelemetry(counters)
         self.action = _FakeAction(counters)
 
     async def connect(self, *, system_address: str | None = None) -> None:
         self._counters["connect"] += 1
+
+    def _stop_mavsdk_server(self) -> None:
+        self._counters["stopped"] = self._counters.get("stopped", 0) + 1
 
 
 class _InjectedDrone(SimDrone):
@@ -109,6 +135,60 @@ def test_connect_caches_home_and_sets_speed_once_across_calls():
     assert counters["set_speed"] == 1
     assert counters["last_speed"] == config.SAFETY_LIMITS.max_speed_ms
     assert results[1]["ready"] is True
+
+
+def test_takeoff_converts_transport_error_to_structured_result():
+    # MAVSDK can raise grpc.aio.AioRpcError (transport faults: server crash,
+    # connection reset, port contention), not just ActionError. These must be
+    # caught and returned as a structured {"ok": false} result, never escape as
+    # a raw traceback (AGENTS.md "never let a raw exception escape a tool").
+    from grpc import StatusCode
+    from grpc.aio import AioRpcError, Metadata
+
+    drone, counters = _drone_with_fake()
+    counters["takeoff_raises"] = AioRpcError(
+        StatusCode.UNAVAILABLE,
+        Metadata(),
+        Metadata(),
+        details="Stream removed (recvmsg:Connection reset by peer)",
+    )
+
+    result = asyncio.run(drone.takeoff(15))
+
+    assert result["ok"] is False
+    assert result["refused"] is False
+    assert "MAVSDK action failed during takeoff" in result["reason"]
+    assert "Stream removed" in result["reason"]
+
+
+def test_close_stops_mavsdk_server_and_resets_state():
+    # MAVSDK auto-starts a mavsdk_server subprocess that otherwise hangs the
+    # interpreter on exit and leaves the UDP port bound. close() must stop it
+    # and reset connection state so a later connect() starts fresh.
+    drone, counters = _drone_with_fake()
+    asyncio.run(drone.connect())
+
+    result = drone.close()
+
+    assert result["ok"] is True
+    assert counters["stopped"] == 1
+    assert drone._system is None
+    assert drone._connected is False
+    assert drone._ready is False
+
+
+def test_wait_for_altitude_handles_takeoff_overshoot():
+    # PX4 auto-takeoff settles ABOVE the commanded altitude (observed: 15 m
+    # command -> holds at ~16.5 m). The reached-check must treat that overshoot
+    # as success, not poll forever and false-timeout.
+    drone, counters = _drone_with_fake()
+    counters["altitudes"] = [1.5, 9.7, 13.75, 15.49, 16.16, 16.51, 16.51]
+
+    result = asyncio.run(drone._wait_for_altitude(15.0, timeout_s=5.0))
+
+    assert result["ok"] is True
+    # First sample at or above target - tolerance (15 - 1 = 14) is 15.49.
+    assert result["relative_altitude_m"] == 15.49
 
 
 def test_connect_reset_on_address_change_recaches_home():

@@ -22,34 +22,37 @@ from px4_sitl_mcp.drone import fleet
 
 
 async def main() -> int:
-    connect = await fleet.connect_drones(2)
-    print("connect_drones:")
-    print(json.dumps(connect, indent=2))
-    if not connect.get("ok"):
-        return 1
-
-    first = await fleet.command_drone("drone-1", "takeoff", altitude_m=10)
-    print("drone-1 takeoff:")
-    print(json.dumps(first, indent=2))
-    if not first.get("ok"):
-        return 1
-
-    second = await fleet.command_drone("drone-2", "takeoff", altitude_m=12)
-    print("drone-2 takeoff:")
-    print(json.dumps(second, indent=2))
-    if not second.get("ok"):
-        return 1
-
-    await asyncio.sleep(3)
-
-    for drone_id in ("drone-1", "drone-2"):
-        land = await fleet.command_drone(drone_id, "land")
-        print(f"{drone_id} land:")
-        print(json.dumps(land, indent=2))
-        if not land.get("ok"):
+    try:
+        connect = await fleet.connect_drones(2)
+        print("connect_drones:")
+        print(json.dumps(connect, indent=2))
+        if not connect.get("ok"):
             return 1
 
-    return 0
+        first = await fleet.command_drone("drone-1", "takeoff", altitude_m=10)
+        print("drone-1 takeoff:")
+        print(json.dumps(first, indent=2))
+        if not first.get("ok"):
+            return 1
+
+        second = await fleet.command_drone("drone-2", "takeoff", altitude_m=12)
+        print("drone-2 takeoff:")
+        print(json.dumps(second, indent=2))
+        if not second.get("ok"):
+            return 1
+
+        await asyncio.sleep(3)
+
+        for drone_id in ("drone-1", "drone-2"):
+            land = await fleet.command_drone(drone_id, "land")
+            print(f"{drone_id} land:")
+            print(json.dumps(land, indent=2))
+            if not land.get("ok"):
+                return 1
+
+        return 0
+    finally:
+        fleet.close_all()
 
 
 if __name__ == "__main__":

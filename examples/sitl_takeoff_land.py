@@ -18,24 +18,27 @@ from px4_sitl_mcp.drone import drone
 
 
 async def main() -> int:
-    connect = await drone.connect()
-    print("connect:")
-    print(json.dumps(connect, indent=2))
-    if not connect.get("ok"):
-        return 1
+    try:
+        connect = await drone.connect()
+        print("connect:")
+        print(json.dumps(connect, indent=2))
+        if not connect.get("ok"):
+            return 1
 
-    takeoff = await drone.takeoff(15)
-    print("takeoff:")
-    print(json.dumps(takeoff, indent=2))
-    if not takeoff.get("ok"):
-        return 1
+        takeoff = await drone.takeoff(15)
+        print("takeoff:")
+        print(json.dumps(takeoff, indent=2))
+        if not takeoff.get("ok"):
+            return 1
 
-    await asyncio.sleep(3)
+        await asyncio.sleep(3)
 
-    land = await drone.land()
-    print("land:")
-    print(json.dumps(land, indent=2))
-    return 0 if land.get("ok") else 1
+        land = await drone.land()
+        print("land:")
+        print(json.dumps(land, indent=2))
+        return 0 if land.get("ok") else 1
+    finally:
+        drone.close()
 
 
 if __name__ == "__main__":

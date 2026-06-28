@@ -18,9 +18,12 @@ from px4_sitl_mcp.drone import drone
 
 
 async def main() -> int:
-    state = await drone.get_state()
-    print(json.dumps(state, indent=2))
-    return 0 if state.get("ok") else 1
+    try:
+        state = await drone.get_state()
+        print(json.dumps(state, indent=2))
+        return 0 if state.get("ok") else 1
+    finally:
+        drone.close()
 
 
 if __name__ == "__main__":

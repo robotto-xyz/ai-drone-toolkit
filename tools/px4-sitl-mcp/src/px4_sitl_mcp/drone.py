@@ -12,12 +12,19 @@ import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 
+from grpc.aio import AioRpcError
 from mavsdk import System
 from mavsdk.action import ActionError
 
 from robotto_drone_core import frames, safety, survey
 
 from . import config
+
+# MAVSDK-Python surfaces two failure classes we must never let escape as raw
+# tracebacks (AGENTS.md landmine): ActionError for command rejections, and
+# grpc.aio.AioRpcError for transport-level faults (server crash, connection
+# reset, port contention). Both convert to structured {"ok": false} results.
+MAVSDK_CALL_ERRORS = (ActionError, AioRpcError)
 
 
 class SimDrone:
@@ -115,7 +122,7 @@ class SimDrone:
             return speed
         try:
             await self.system.action.set_current_speed(speed["speed_ms"])
-        except ActionError as exc:
+        except MAVSDK_CALL_ERRORS as exc:
             return {
                 "ok": False,
                 "refused": False,
@@ -188,6 +195,37 @@ class SimDrone:
             "home_cached": self._home_ready(),
         }
 
+    def close(self) -> dict[str, Any]:
+        """Stop the auto-started MAVSDK server and reset connection state.
+
+        MAVSDK-Python auto-spawns a ``mavsdk_server`` subprocess that otherwise
+        keeps the interpreter alive on exit (scripts appear to "hang") and leaves
+        the local UDP endpoint bound, which makes the next connection fail with
+        "Address already in use". MAVSDK exposes no public stop API, so we call
+        its documented-internal stop defensively and drop our reference. Safe to
+        call even if never connected; long-lived servers (the MCP process) don't
+        need it but may call it for clean shutdown.
+        """
+
+        system = self._system
+        if system is not None:
+            stop = getattr(system, "_stop_mavsdk_server", None)
+            if callable(stop):
+                try:
+                    stop()
+                except Exception:
+                    pass
+            # Avoid System.__del__ re-stopping during interpreter shutdown,
+            # which raises a harmless ImportError as modules unload.
+            try:
+                system._server_process = None
+            except Exception:
+                pass
+        self._system = None
+        self._connected = False
+        self._ready = False
+        return safety.ok(closed=True)
+
     async def get_state(self) -> dict[str, Any]:
         """Return current read-only drone state as JSON-serializable data."""
 
@@ -235,12 +273,19 @@ class SimDrone:
         *,
         timeout_s: float = config.DEFAULT_REACH_TIMEOUT_S,
     ) -> dict[str, Any]:
+        # Consume the position stream at its native rate (no sleep in the loop).
+        # MAVSDK's telemetry.position() pushes at ~tens of Hz; awaiting a sleep
+        # between frames lets the gRPC backlog grow so we read ever-staler frames
+        # and never observe the live climb before the timeout. Every frame is a
+        # cheap comparison, so draining continuously keeps us on current data.
         async def wait() -> dict[str, Any]:
             async for position in self.system.telemetry.position():
                 current_altitude_m = float(position.relative_altitude_m)
-                if abs(current_altitude_m - altitude_m) <= 1.0:
+                # Reached once climbed to within tolerance below target. PX4
+                # settles slightly above the commanded takeoff altitude, so an
+                # at-or-above check avoids false timeouts on that overshoot.
+                if current_altitude_m >= altitude_m - config.TAKEOFF_REACH_TOLERANCE_M:
                     return safety.ok(relative_altitude_m=current_altitude_m)
-                await asyncio.sleep(config.DEFAULT_POLL_INTERVAL_S)
             return safety.refused("Position stream ended before reaching altitude")
 
         try:
@@ -269,7 +314,7 @@ class SimDrone:
             await self.system.action.set_takeoff_altitude(altitude["altitude_m"])
             await self.system.action.arm()
             await self.system.action.takeoff()
-        except ActionError as exc:
+        except MAVSDK_CALL_ERRORS as exc:
             return {
                 "ok": False,
                 "refused": False,
@@ -303,7 +348,7 @@ class SimDrone:
 
         try:
             await self.system.action.land()
-        except ActionError as exc:
+        except MAVSDK_CALL_ERRORS as exc:
             return {
                 "ok": False,
                 "refused": False,
@@ -330,6 +375,9 @@ class SimDrone:
         if not self._home_ready():
             return safety.refused("Home position is not cached; call connect first")
 
+        # Drain the stream at its native rate (see _wait_for_altitude): sleeping
+        # between frames backs up the gRPC buffer and makes us act on stale
+        # positions, so the vehicle reaches the waypoint without us observing it.
         async def wait() -> dict[str, Any]:
             async for position in self.system.telemetry.position():
                 current_north_m, current_east_m = frames.latlon_to_offset(
@@ -354,7 +402,6 @@ class SimDrone:
                         current_east_m=current_east_m,
                         current_altitude_m=current_altitude_m,
                     )
-                await asyncio.sleep(config.DEFAULT_POLL_INTERVAL_S)
             return safety.refused("Position stream ended before reaching goto target")
 
         try:
@@ -410,7 +457,7 @@ class SimDrone:
                 target_amsl_m,
                 yaw_deg,
             )
-        except ActionError as exc:
+        except MAVSDK_CALL_ERRORS as exc:
             return {
                 "ok": False,
                 "refused": False,
@@ -555,6 +602,15 @@ class DroneFleet:
                 for drone_id, drone in sorted(self._drones.items())
             }
         )
+
+    def close_all(self) -> dict[str, Any]:
+        """Stop every drone's MAVSDK server (clean shutdown for scripts)."""
+
+        for drone in self._drones.values():
+            close = getattr(drone, "close", None)
+            if callable(close):
+                close()
+        return safety.ok(closed=True)
 
     async def connect_drone(
         self,
