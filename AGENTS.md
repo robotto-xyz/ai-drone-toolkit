@@ -202,9 +202,9 @@ Status legend: ✅ done · 🟡 in progress · ⬜ planned
 - ✅ `list_log_topics` — uORB topic inventory (name, multi-id, samples, fields)
 - ✅ `get_log_summary` — duration, hardware/firmware, flight-mode timeline,
   dropouts, logged warnings/errors
-- ⬜ `query_topic(path, topic, start_s, end_s)` — pull one signal over a time
-  window (battery, altitude, EKF innovations). The natural next tool.
-- ⬜ `get_failsafe_events(path)` — extract failsafe triggers & arming-state
+- ✅ `query_topic(path, topic, start_s, end_s)` — pull one signal over a time
+  window (battery, altitude, EKF innovations).
+- ✅ `get_failsafe_events(path)` — extract failsafe triggers & arming-state
   changes with timestamps
 - ⬜ `diagnose_flight(path)` — opinionated "what went wrong" bundle (EKF
   divergence, low battery, high vibration, mode thrash)

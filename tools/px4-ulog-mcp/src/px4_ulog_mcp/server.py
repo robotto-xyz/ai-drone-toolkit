@@ -20,9 +20,10 @@ mcp = FastMCP(
     name="px4-ulog-analyzer",
     instructions=(
         "Tools for inspecting PX4 ULog (.ulg) flight logs. "
-        "Call list_log_topics first to see what was recorded, then "
-        "get_log_summary for an overview of duration, flight modes, and any "
-        "errors. Pass absolute file paths."
+        "Call list_log_topics first to see what was recorded, get_log_summary "
+        "for an overview, query_topic for bounded signal samples, and "
+        "get_failsafe_events for arming and failsafe transitions. Pass "
+        "absolute file paths."
     ),
 )
 
@@ -48,6 +49,47 @@ def get_log_summary(path: str) -> dict:
     file.
     """
     return ulog_tools.get_log_summary(path)
+
+
+@mcp.tool
+def query_topic(
+    path: str,
+    topic: str,
+    fields: list[str] | str | None = None,
+    start_s: float | None = None,
+    end_s: float | None = None,
+    multi_id: int = 0,
+    max_samples: int = 500,
+) -> dict:
+    """Query fields from one uORB topic over a seconds-from-log-start window.
+
+    Call `list_log_topics` first to discover topic and field names. `path` must
+    be an absolute path to a .ulg file. `fields` may be omitted to return every
+    non-timestamp field, a single field name, or a list of field names. `start_s`
+    and `end_s` are seconds from log start. Large result sets are automatically
+    decimated to `max_samples`, while stats still cover the full filtered window.
+    """
+    return ulog_tools.query_topic(
+        path=path,
+        topic=topic,
+        fields=fields,
+        start_s=start_s,
+        end_s=end_s,
+        multi_id=multi_id,
+        max_samples=max_samples,
+    )
+
+
+@mcp.tool
+def get_failsafe_events(path: str) -> dict:
+    """Extract arming and failsafe-related events from a PX4 ULog file.
+
+    `path` must be an absolute path to a .ulg file. Returns chronological
+    vehicle_status changes such as arming-state transitions, failsafe flags,
+    RC/data-link loss, engine or mission failure flags, failsafe navigation
+    modes, and derived armed intervals.
+    """
+    return ulog_tools.get_failsafe_events(path)
 
 
 def main() -> None:

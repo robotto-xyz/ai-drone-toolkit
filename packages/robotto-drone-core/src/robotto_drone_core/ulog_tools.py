@@ -8,6 +8,7 @@ reuse it from a CLI, a web app, or any MCP server in the toolkit.
 
 from __future__ import annotations
 
+import math
 import os
 from typing import Any
 
@@ -36,6 +37,31 @@ NAV_STATE_NAMES = {
 LOG_LEVEL_NAMES = {
     0: "EMERG", 1: "ALERT", 2: "CRIT", 3: "ERR",
     4: "WARNING", 5: "NOTICE", 6: "INFO", 7: "DEBUG",
+}
+
+# PX4 arming_state enum -> human label. Unknown values are surfaced explicitly.
+ARMING_STATE_NAMES = {
+    0: "INIT",
+    1: "STANDBY",
+    2: "ARMED",
+    3: "STANDBY_ERROR",
+    4: "SHUTDOWN",
+    5: "IN_AIR_RESTORE",
+}
+
+FAILSAFE_BOOL_FIELDS = (
+    "failsafe",
+    "rc_signal_lost",
+    "data_link_lost",
+    "engine_failure",
+    "mission_failure",
+)
+
+FAILSAFE_NAV_STATES = {
+    5: "AUTO_RTL",
+    12: "DESCEND",
+    13: "TERMINATION",
+    18: "AUTO_LAND",
 }
 
 
@@ -83,6 +109,61 @@ def _log_level_name(level: Any) -> str:
     return str(lvl)
 
 
+def _label(mapping: dict[int, str], value: Any) -> str:
+    value_i = int(value)
+    return mapping.get(value_i, f"UNKNOWN({value_i})")
+
+
+def _to_primitive(value: Any) -> Any:
+    """Convert numpy/pyulog scalars into JSON-serializable Python primitives."""
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        return float(value)
+    if isinstance(value, (list, tuple)):
+        return [_to_primitive(v) for v in value]
+    return value
+
+
+def _numeric_value(value: Any) -> float | None:
+    value = _to_primitive(value)
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        value_f = float(value)
+        if math.isfinite(value_f):
+            return value_f
+    return None
+
+
+def _field_stats(values: list[Any]) -> dict[str, Any]:
+    numeric = [v for v in (_numeric_value(value) for value in values) if v is not None]
+    stats: dict[str, Any] = {
+        "first": _to_primitive(values[0]) if values else None,
+        "last": _to_primitive(values[-1]) if values else None,
+    }
+    if numeric:
+        stats.update(
+            {
+                "min": min(numeric),
+                "max": max(numeric),
+                "mean": round(sum(numeric) / len(numeric), 6),
+            }
+        )
+    return stats
+
+
+def _available_topics(ulog: ULog) -> str:
+    topics = sorted({d.name for d in ulog.data_list})
+    return ", ".join(topics[:20]) + ("..." if len(topics) > 20 else "")
+
+
 def list_log_topics(path: str) -> dict[str, Any]:
     """Inventory of logged uORB topics: name, multi-instance id, sample count.
 
@@ -107,6 +188,97 @@ def list_log_topics(path: str) -> dict[str, Any]:
         "file": os.path.basename(path),
         "num_topics": len(topics),
         "topics": topics,
+    }
+
+
+def query_topic(
+    path: str,
+    topic: str,
+    fields: list[str] | str | None = None,
+    start_s: float | None = None,
+    end_s: float | None = None,
+    multi_id: int = 0,
+    max_samples: int = 500,
+) -> dict[str, Any]:
+    """Pull selected signal fields from one uORB topic over a time window.
+
+    Samples are returned as seconds from log start and decimated when needed so
+    LLM-facing payloads stay bounded. Per-field stats cover the full filtered
+    window, not just the returned samples.
+    """
+    if max_samples <= 0:
+        raise ULogError("max_samples must be greater than 0")
+    if start_s is not None and end_s is not None and start_s > end_s:
+        raise ULogError("start_s must be less than or equal to end_s")
+
+    ulog = _safe_load(path)
+    try:
+        dataset = ulog.get_dataset(topic, multi_id)
+    except (KeyError, IndexError) as exc:
+        raise ULogError(
+            f"Topic not found: {topic} multi_id={multi_id}. "
+            f"Available topics include: {_available_topics(ulog)}"
+        ) from exc
+
+    timestamps = dataset.data.get("timestamp")
+    if timestamps is None:
+        raise ULogError(f"Topic {topic} does not contain a timestamp field")
+
+    available_fields = sorted(k for k in dataset.data.keys() if k != "timestamp")
+    if fields is None:
+        selected_fields = available_fields
+    elif isinstance(fields, str):
+        selected_fields = [fields]
+    else:
+        selected_fields = list(fields)
+
+    invalid_fields = [field for field in selected_fields if field not in dataset.data]
+    if invalid_fields:
+        raise ULogError(
+            f"Field(s) not found for topic {topic}: {', '.join(invalid_fields)}. "
+            f"Available fields: {', '.join(available_fields)}"
+        )
+
+    indices: list[int] = []
+    for i, timestamp in enumerate(timestamps):
+        t_s = _rel_s(timestamp, ulog.start_timestamp)
+        if start_s is not None and t_s < start_s:
+            continue
+        if end_s is not None and t_s > end_s:
+            continue
+        indices.append(i)
+
+    stride = 1
+    returned_indices = indices
+    if len(indices) > max_samples:
+        stride = math.ceil(len(indices) / max_samples)
+        returned_indices = indices[::stride]
+
+    samples = []
+    for i in returned_indices:
+        sample = {"t_s": _rel_s(timestamps[i], ulog.start_timestamp)}
+        for field in selected_fields:
+            sample[field] = _to_primitive(dataset.data[field][i])
+        samples.append(sample)
+
+    stats = {
+        field: _field_stats([dataset.data[field][i] for i in indices])
+        for field in selected_fields
+    }
+
+    return {
+        "file": os.path.basename(path),
+        "topic": topic,
+        "multi_id": int(multi_id),
+        "fields": selected_fields,
+        "start_s": start_s,
+        "end_s": end_s,
+        "num_samples_total": len(indices),
+        "num_samples_returned": len(samples),
+        "decimated": len(indices) > len(samples),
+        "decimation_stride": stride,
+        "stats": stats,
+        "samples": samples,
     }
 
 
@@ -163,4 +335,106 @@ def get_log_summary(path: str) -> dict[str, Any]:
         "flight_modes": flight_modes,
         "num_warnings_or_errors": len(errors),
         "warnings_and_errors": errors,
+    }
+
+
+def get_failsafe_events(path: str) -> dict[str, Any]:
+    """Extract arming, failsafe, and failsafe-like navigation transitions."""
+    ulog = _safe_load(path, ["vehicle_status"])
+    try:
+        vs = ulog.get_dataset("vehicle_status")
+    except (KeyError, IndexError):
+        return {
+            "file": os.path.basename(path),
+            "num_events": 0,
+            "events": [],
+            "armed_intervals": [],
+            "note": "vehicle_status topic not present in this log",
+        }
+
+    events: list[dict[str, Any]] = []
+
+    arming_changes: list[tuple[float, int]] = []
+    if "arming_state" in vs.data:
+        previous: int | None = None
+        for timestamp, value in vs.list_value_changes("arming_state"):
+            current = int(value)
+            t_s = _rel_s(timestamp, ulog.start_timestamp)
+            arming_changes.append((t_s, current))
+            events.append(
+                {
+                    "t_s": t_s,
+                    "type": "arming_state",
+                    "field": "arming_state",
+                    "from": _label(ARMING_STATE_NAMES, previous) if previous is not None else None,
+                    "to": _label(ARMING_STATE_NAMES, current),
+                    "detail": f"arming_state changed to {_label(ARMING_STATE_NAMES, current)}",
+                }
+            )
+            previous = current
+
+    for field in FAILSAFE_BOOL_FIELDS:
+        if field not in vs.data:
+            continue
+        previous_bool: bool | None = None
+        for timestamp, value in vs.list_value_changes(field):
+            current_bool = bool(value)
+            events.append(
+                {
+                    "t_s": _rel_s(timestamp, ulog.start_timestamp),
+                    "type": field,
+                    "field": field,
+                    "from": previous_bool,
+                    "to": current_bool,
+                    "detail": f"{field} {'set' if current_bool else 'cleared'}",
+                }
+            )
+            previous_bool = current_bool
+
+    if "nav_state" in vs.data:
+        previous_nav: int | None = None
+        for timestamp, value in vs.list_value_changes("nav_state"):
+            current_nav = int(value)
+            if current_nav in FAILSAFE_NAV_STATES:
+                events.append(
+                    {
+                        "t_s": _rel_s(timestamp, ulog.start_timestamp),
+                        "type": "failsafe_nav_state",
+                        "field": "nav_state",
+                        "from": _label(NAV_STATE_NAMES, previous_nav) if previous_nav is not None else None,
+                        "to": _label(NAV_STATE_NAMES, current_nav),
+                        "detail": f"navigation switched to {_label(NAV_STATE_NAMES, current_nav)}",
+                    }
+                )
+            previous_nav = current_nav
+
+    armed_intervals = []
+    armed_start_s: float | None = None
+    for t_s, state in arming_changes:
+        if state == 2 and armed_start_s is None:
+            armed_start_s = t_s
+        elif state != 2 and armed_start_s is not None:
+            armed_intervals.append(
+                {
+                    "start_s": armed_start_s,
+                    "end_s": t_s,
+                    "duration_s": round(t_s - armed_start_s, 3),
+                }
+            )
+            armed_start_s = None
+    if armed_start_s is not None:
+        armed_intervals.append(
+            {
+                "start_s": armed_start_s,
+                "end_s": None,
+                "duration_s": None,
+            }
+        )
+
+    events.sort(key=lambda event: event["t_s"])
+    return {
+        "file": os.path.basename(path),
+        "num_events": len(events),
+        "events": events,
+        "armed_intervals": armed_intervals,
     }

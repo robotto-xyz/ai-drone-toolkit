@@ -14,8 +14,10 @@ flight?"* and it calls real tools that parse the log with
 |------|--------------|
 | `list_log_topics(path)` | Inventory of recorded uORB topics: name, multi-id, sample count, fields. The cheap "what's in here" call. |
 | `get_log_summary(path)` | Duration, hardware/firmware, flight-mode timeline, dropouts, and all logged warnings/errors. The "what happened" call. |
+| `query_topic(path, topic, fields, start_s, end_s, multi_id, max_samples)` | Pull bounded samples and stats for one topic over a seconds-from-log-start window. Use it for battery, altitude, EKF, and other signal checks. |
+| `get_failsafe_events(path)` | Extract arming-state changes, failsafe flags, RC/data-link loss, engine/mission failure flags, failsafe nav modes, and armed intervals. |
 
-Both take an **absolute path** to a `.ulg` file.
+All tools take an **absolute path** to a `.ulg` file.
 
 ## Install
 
@@ -57,6 +59,17 @@ from robotto_drone_core import ulog_tools
 
 log_path = Path("packages/robotto-drone-core/tests/sample.ulg").resolve()
 print(ulog_tools.get_log_summary(str(log_path)))
+print(
+    ulog_tools.query_topic(
+        str(log_path),
+        topic="vehicle_local_position",
+        fields=["z"],
+        start_s=10,
+        end_s=12,
+        max_samples=20,
+    )
+)
+print(ulog_tools.get_failsafe_events(str(log_path)))
 ```
 
 Run this from the repository root. If your Python session is started from
@@ -118,13 +131,16 @@ tools in the connector list.
 The assistant should call `list_log_topics`, then `get_log_summary`, and reason
 over the errors and flight-mode timeline it gets back.
 
+For deeper follow-up, ask for a specific signal or safety timeline:
+
+> Query altitude from 10 to 30 seconds and summarize the min/max/mean.
+
+> Show me arming and failsafe events with timestamps.
+
 ## Where to take it next
 
 This is a deliberately small v1. Natural follow-on tools:
 
-- `query_topic(path, topic, start_s, end_s)` — pull a single signal over a time
-  window (battery voltage, altitude, EKF innovations) for fine-grained analysis.
-- `get_failsafe_events(path)` — extract failsafe triggers and arming state changes.
 - `diagnose_flight(path)` — bundle the common "what went wrong" heuristics
   (EKF divergence, low battery, high vibration) into one opinionated call.
 
