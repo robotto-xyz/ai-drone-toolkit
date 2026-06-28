@@ -21,9 +21,10 @@ mcp = FastMCP(
     instructions=(
         "Tools for inspecting PX4 ULog (.ulg) flight logs. "
         "Call list_log_topics first to see what was recorded, get_log_summary "
-        "for an overview, query_topic for bounded signal samples, and "
-        "get_failsafe_events for arming and failsafe transitions. Pass "
-        "absolute file paths."
+        "for an overview, query_topic for bounded signal samples, "
+        "get_failsafe_events for arming and failsafe transitions, and "
+        "diagnose_flight for an opinionated health verdict. Pass absolute file "
+        "paths."
     ),
 )
 
@@ -90,6 +91,21 @@ def get_failsafe_events(path: str) -> dict:
     modes, and derived armed intervals.
     """
     return ulog_tools.get_failsafe_events(path)
+
+
+@mcp.tool
+def diagnose_flight(path: str) -> dict:
+    """Run an opinionated health check over a PX4 ULog file.
+
+    `path` must be an absolute path to a .ulg file. Bundles the common
+    "what went wrong" heuristics — logged errors, EKF innovation divergence and
+    fault flags, vibration, CPU load, low battery, failsafe events, and flight-
+    mode thrash — into a single `healthy` verdict with a list of `findings`
+    (each with a severity and supporting evidence). Checks whose topics are not
+    in the log are reported under `checks_skipped` rather than failing the call.
+    Best single call for "is this flight healthy and, if not, why?".
+    """
+    return ulog_tools.diagnose_flight(path)
 
 
 def main() -> None:

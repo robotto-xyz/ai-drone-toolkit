@@ -115,6 +115,40 @@ def test_get_failsafe_events_missing_vehicle_status(monkeypatch):
     assert "vehicle_status" in out["note"]
 
 
+def test_diagnose_flight_flags_logged_errors_and_skips_battery():
+    out = ulog_tools.diagnose_flight(SAMPLE)
+
+    assert out["file"] == "sample.ulg"
+    assert out["healthy"] is False
+    assert out["verdict"] == "issues_found"
+    assert out["num_findings"] == len(out["findings"])
+
+    # The sample log's 4 "no barometer" ERR messages drive the verdict.
+    logged = [f for f in out["findings"] if f["check"] == "logged_errors"]
+    assert logged and logged[0]["severity"] == "critical"
+    assert logged[0]["evidence"]["count"] == 4
+
+    # EKF/vibration/CPU checks have data and run clean (no findings) on this log.
+    assert "ekf_innovations" in out["checks_run"]
+    assert "vibration" in out["checks_run"]
+    assert not any(f["check"] == "ekf_innovations" for f in out["findings"])
+
+    # No battery topic in this log -> the check is skipped, not failed.
+    skipped = {c["check"] for c in out["checks_skipped"]}
+    assert "battery" in skipped
+
+    # Findings are sorted worst-first and the whole payload is JSON-safe.
+    severities = [f["severity"] for f in out["findings"]]
+    rank = {"critical": 0, "warning": 1, "info": 2}
+    assert severities == sorted(severities, key=lambda s: rank[s])
+    json.dumps(out)
+
+
+def test_diagnose_flight_missing_file_raises():
+    with pytest.raises(ulog_tools.ULogError):
+        ulog_tools.diagnose_flight("/nope/does_not_exist.ulg")
+
+
 def test_missing_file_raises():
     with pytest.raises(ulog_tools.ULogError):
         ulog_tools.list_log_topics("/nope/does_not_exist.ulg")

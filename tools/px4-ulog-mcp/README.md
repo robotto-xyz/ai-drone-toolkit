@@ -16,6 +16,7 @@ flight?"* and it calls real tools that parse the log with
 | `get_log_summary(path)` | Duration, hardware/firmware, flight-mode timeline, dropouts, and all logged warnings/errors. The "what happened" call. |
 | `query_topic(path, topic, fields, start_s, end_s, multi_id, max_samples)` | Pull bounded samples and stats for one topic over a seconds-from-log-start window. Use it for battery, altitude, EKF, and other signal checks. |
 | `get_failsafe_events(path)` | Extract arming-state changes, failsafe flags, RC/data-link loss, engine/mission failure flags, failsafe nav modes, and armed intervals. |
+| `diagnose_flight(path)` | Opinionated health verdict: logged errors, EKF innovation/fault flags, vibration, CPU load, low battery, failsafe events, and mode thrash, with a `healthy` flag and severity-ranked findings. |
 
 All tools take an **absolute path** to a `.ulg` file.
 
@@ -70,6 +71,7 @@ print(
     )
 )
 print(ulog_tools.get_failsafe_events(str(log_path)))
+print(ulog_tools.diagnose_flight(str(log_path)))
 ```
 
 Run this from the repository root. If your Python session is started from
@@ -137,12 +139,16 @@ For deeper follow-up, ask for a specific signal or safety timeline:
 
 > Show me arming and failsafe events with timestamps.
 
+> Diagnose this flight and tell me if anything looks unhealthy.
+
 ## Where to take it next
 
-This is a deliberately small v1. Natural follow-on tools:
+The four tools above cover discovery, overview, signal queries, failsafe
+timelines, and an opinionated health verdict. Natural follow-on work:
 
-- `diagnose_flight(path)` — bundle the common "what went wrong" heuristics
-  (EKF divergence, low battery, high vibration) into one opinionated call.
+- Tune `diagnose_flight` thresholds against more real logs and add GPS-accuracy
+  and actuator-saturation heuristics.
+- A short demo recording of the analyzer answering "what went wrong?" end to end.
 
 The parsing logic lives in `robotto_drone_core.ulog_tools` and is independent of
 MCP, so each new tool is a small function in the shared core package plus a thin

@@ -206,7 +206,7 @@ Status legend: ✅ done · 🟡 in progress · ⬜ planned
   window (battery, altitude, EKF innovations).
 - ✅ `get_failsafe_events(path)` — extract failsafe triggers & arming-state
   changes with timestamps
-- ⬜ `diagnose_flight(path)` — opinionated "what went wrong" bundle (EKF
+- ✅ `diagnose_flight(path)` — opinionated "what went wrong" bundle (EKF
   divergence, low battery, high vibration, mode thrash)
 - ⬜ Round out docs + a short demo recording; this track is the credibility
   builder and should reach "finished" first.

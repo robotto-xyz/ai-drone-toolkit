@@ -64,6 +64,30 @@ FAILSAFE_NAV_STATES = {
     18: "AUTO_LAND",
 }
 
+# diagnose_flight heuristic thresholds. Tunable; grounded in PX4 log-review
+# conventions (EKF innovation test ratios reject at 1.0; vibration and CPU
+# bands follow the PX4 flight-review guidance).
+EKF_TEST_RATIO_WARN = 0.5
+EKF_TEST_RATIO_CRIT = 1.0
+VIBE_WARN_MS = 30.0
+VIBE_CRIT_MS = 60.0
+CPU_LOAD_WARN = 0.90
+CPU_LOAD_CRIT = 0.95
+BATTERY_REMAINING_WARN = 0.20
+BATTERY_REMAINING_CRIT = 0.10
+MODE_CHANGES_WARN = 12
+
+# EKF innovation test-ratio fields (>1.0 == measurement rejected).
+EKF_TEST_RATIO_FIELDS = (
+    "vel_test_ratio",
+    "pos_test_ratio",
+    "hgt_test_ratio",
+    "mag_test_ratio",
+)
+
+# Severity ordering for sorting findings worst-first.
+_SEVERITY_RANK = {"critical": 0, "warning": 1, "info": 2}
+
 
 class ULogError(Exception):
     """Raised for any problem loading or reading a ULog file."""
@@ -162,6 +186,23 @@ def _field_stats(values: list[Any]) -> dict[str, Any]:
 def _available_topics(ulog: ULog) -> str:
     topics = sorted({d.name for d in ulog.data_list})
     return ", ".join(topics[:20]) + ("..." if len(topics) > 20 else "")
+
+
+def _dataset_field_stats(
+    ulog: ULog, topic: str, field: str, multi_id: int = 0
+) -> dict[str, Any] | None:
+    """Full-series stats for one topic field, or ``None`` if it isn't logged.
+
+    Used by :func:`diagnose_flight` so each heuristic can degrade gracefully
+    when a topic or field is missing instead of raising.
+    """
+    try:
+        dataset = ulog.get_dataset(topic, multi_id)
+    except (KeyError, IndexError):
+        return None
+    if field not in dataset.data:
+        return None
+    return _field_stats(list(dataset.data[field]))
 
 
 def list_log_topics(path: str) -> dict[str, Any]:
@@ -338,19 +379,17 @@ def get_log_summary(path: str) -> dict[str, Any]:
     }
 
 
-def get_failsafe_events(path: str) -> dict[str, Any]:
-    """Extract arming, failsafe, and failsafe-like navigation transitions."""
-    ulog = _safe_load(path, ["vehicle_status"])
+def _failsafe_events(ulog: ULog) -> dict[str, Any] | None:
+    """Build failsafe/arming events from a loaded log.
+
+    Returns ``None`` when the log has no ``vehicle_status`` topic so callers can
+    decide how to surface the gap. Shared by :func:`get_failsafe_events` and
+    :func:`diagnose_flight` so the parse happens once per call site.
+    """
     try:
         vs = ulog.get_dataset("vehicle_status")
     except (KeyError, IndexError):
-        return {
-            "file": os.path.basename(path),
-            "num_events": 0,
-            "events": [],
-            "armed_intervals": [],
-            "note": "vehicle_status topic not present in this log",
-        }
+        return None
 
     events: list[dict[str, Any]] = []
 
@@ -433,8 +472,306 @@ def get_failsafe_events(path: str) -> dict[str, Any]:
 
     events.sort(key=lambda event: event["t_s"])
     return {
-        "file": os.path.basename(path),
-        "num_events": len(events),
         "events": events,
         "armed_intervals": armed_intervals,
+    }
+
+
+def get_failsafe_events(path: str) -> dict[str, Any]:
+    """Extract arming, failsafe, and failsafe-like navigation transitions."""
+    ulog = _safe_load(path, ["vehicle_status"])
+    data = _failsafe_events(ulog)
+    if data is None:
+        return {
+            "file": os.path.basename(path),
+            "num_events": 0,
+            "events": [],
+            "armed_intervals": [],
+            "note": "vehicle_status topic not present in this log",
+        }
+    return {
+        "file": os.path.basename(path),
+        "num_events": len(data["events"]),
+        "events": data["events"],
+        "armed_intervals": data["armed_intervals"],
+    }
+
+
+def _finding(
+    check: str, severity: str, detail: str, evidence: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    finding: dict[str, Any] = {"check": check, "severity": severity, "detail": detail}
+    if evidence is not None:
+        finding["evidence"] = evidence
+    return finding
+
+
+def _in_any_interval(t_s: float, intervals: list[dict[str, Any]]) -> bool:
+    for interval in intervals:
+        start = interval.get("start_s")
+        end = interval.get("end_s")
+        if start is None:
+            continue
+        if end is None:
+            if t_s >= start:
+                return True
+        elif start <= t_s <= end:
+            return True
+    return False
+
+
+def diagnose_flight(path: str) -> dict[str, Any]:
+    """Opinionated "what went wrong" bundle for a PX4 ULog file.
+
+    Composes the same primitives the other tools expose (logged messages, signal
+    stats, failsafe events) into a single health verdict an LLM can relay. Each
+    heuristic degrades gracefully: a check whose topic isn't in the log is
+    reported under ``checks_skipped`` instead of failing the whole call.
+
+    Returns ``healthy`` plus a list of ``findings`` (each with a severity and the
+    evidence behind it). Thresholds live in module constants and are tunable.
+    """
+    ulog = _safe_load(path)
+    duration_s = round((ulog.last_timestamp - ulog.start_timestamp) / 1e6, 3)
+
+    findings: list[dict[str, Any]] = []
+    checks_run: list[str] = []
+    checks_skipped: list[dict[str, str]] = []
+
+    # 1. Logged messages: ERR and above are smoking guns; WARNING is a heads-up.
+    checks_run.append("logged_errors")
+    severe: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    for m in ulog.logged_messages:
+        lvl = _log_level_name(m.log_level)
+        entry = {"t_s": _rel_s(m.timestamp, ulog.start_timestamp), "level": lvl, "message": m.message}
+        if lvl in ("EMERG", "ALERT", "CRIT", "ERR"):
+            severe.append(entry)
+        elif lvl == "WARNING":
+            warnings.append(entry)
+    if severe:
+        findings.append(
+            _finding(
+                "logged_errors",
+                "critical",
+                f"{len(severe)} error-level message(s) logged during the flight",
+                {"count": len(severe), "samples": severe[:5]},
+            )
+        )
+    if warnings:
+        findings.append(
+            _finding(
+                "logged_errors",
+                "warning",
+                f"{len(warnings)} warning-level message(s) logged during the flight",
+                {"count": len(warnings), "samples": warnings[:5]},
+            )
+        )
+
+    # 2. EKF innovation test ratios (>1.0 == measurement rejected / divergence).
+    worst_ratio: float | None = None
+    worst_field: str | None = None
+    for field in EKF_TEST_RATIO_FIELDS:
+        stats = _dataset_field_stats(ulog, "estimator_status", field)
+        if stats is None or "max" not in stats:
+            continue
+        if worst_ratio is None or stats["max"] > worst_ratio:
+            worst_ratio = stats["max"]
+            worst_field = field
+    if worst_ratio is not None:
+        checks_run.append("ekf_innovations")
+        if worst_ratio >= EKF_TEST_RATIO_CRIT:
+            findings.append(
+                _finding(
+                    "ekf_innovations",
+                    "critical",
+                    f"EKF innovation {worst_field}={worst_ratio:.2f} exceeded {EKF_TEST_RATIO_CRIT} (estimator rejecting measurements)",
+                    {"field": worst_field, "max": worst_ratio},
+                )
+            )
+        elif worst_ratio >= EKF_TEST_RATIO_WARN:
+            findings.append(
+                _finding(
+                    "ekf_innovations",
+                    "warning",
+                    f"EKF innovation {worst_field}={worst_ratio:.2f} elevated (>{EKF_TEST_RATIO_WARN})",
+                    {"field": worst_field, "max": worst_ratio},
+                )
+            )
+    else:
+        checks_skipped.append(
+            {"check": "ekf_innovations", "reason": "estimator_status test ratios not in log"}
+        )
+
+    # 3. EKF fault / NaN flags (any non-zero bit is a hard fault).
+    fault_stats = _dataset_field_stats(ulog, "estimator_status", "filter_fault_flags")
+    nan_stats = _dataset_field_stats(ulog, "estimator_status", "nan_flags")
+    if fault_stats is not None or nan_stats is not None:
+        checks_run.append("ekf_faults")
+        fault_max = int(fault_stats["max"]) if fault_stats and "max" in fault_stats else 0
+        nan_max = int(nan_stats["max"]) if nan_stats and "max" in nan_stats else 0
+        if fault_max or nan_max:
+            findings.append(
+                _finding(
+                    "ekf_faults",
+                    "critical",
+                    f"EKF reported fault flags (filter_fault_flags={fault_max}, nan_flags={nan_max})",
+                    {"filter_fault_flags": fault_max, "nan_flags": nan_max},
+                )
+            )
+    else:
+        checks_skipped.append(
+            {"check": "ekf_faults", "reason": "estimator_status fault flags not in log"}
+        )
+
+    # 4. Vibration (high-frequency delta-velocity, estimator_status.vibe[2]).
+    vibe_stats = _dataset_field_stats(ulog, "estimator_status", "vibe[2]")
+    if vibe_stats is not None and "max" in vibe_stats:
+        checks_run.append("vibration")
+        vibe_max = vibe_stats["max"]
+        if vibe_max >= VIBE_CRIT_MS:
+            findings.append(
+                _finding(
+                    "vibration",
+                    "critical",
+                    f"Peak vibration {vibe_max:.1f} m/s exceeded {VIBE_CRIT_MS} m/s",
+                    {"max": vibe_max},
+                )
+            )
+        elif vibe_max >= VIBE_WARN_MS:
+            findings.append(
+                _finding(
+                    "vibration",
+                    "warning",
+                    f"Peak vibration {vibe_max:.1f} m/s above the {VIBE_WARN_MS} m/s caution band",
+                    {"max": vibe_max},
+                )
+            )
+    else:
+        checks_skipped.append({"check": "vibration", "reason": "estimator_status vibe not in log"})
+
+    # 5. CPU load.
+    cpu_stats = _dataset_field_stats(ulog, "cpuload", "load")
+    if cpu_stats is not None and "max" in cpu_stats:
+        checks_run.append("cpu_load")
+        cpu_max = cpu_stats["max"]
+        if cpu_max >= CPU_LOAD_CRIT:
+            findings.append(
+                _finding(
+                    "cpu_load",
+                    "critical",
+                    f"Peak CPU load {cpu_max * 100:.0f}% exceeded {CPU_LOAD_CRIT * 100:.0f}%",
+                    {"max": cpu_max},
+                )
+            )
+        elif cpu_max >= CPU_LOAD_WARN:
+            findings.append(
+                _finding(
+                    "cpu_load",
+                    "warning",
+                    f"Peak CPU load {cpu_max * 100:.0f}% above {CPU_LOAD_WARN * 100:.0f}%",
+                    {"max": cpu_max},
+                )
+            )
+    else:
+        checks_skipped.append({"check": "cpu_load", "reason": "cpuload topic not in log"})
+
+    # 6. Battery (remaining is a 0..1 fraction).
+    battery_stats = _dataset_field_stats(ulog, "battery_status", "remaining")
+    if battery_stats is not None and "min" in battery_stats:
+        checks_run.append("battery")
+        remaining_min = battery_stats["min"]
+        if remaining_min <= BATTERY_REMAINING_CRIT:
+            findings.append(
+                _finding(
+                    "battery",
+                    "critical",
+                    f"Battery dropped to {remaining_min * 100:.0f}% (<= {BATTERY_REMAINING_CRIT * 100:.0f}%)",
+                    {"min_remaining": remaining_min},
+                )
+            )
+        elif remaining_min <= BATTERY_REMAINING_WARN:
+            findings.append(
+                _finding(
+                    "battery",
+                    "warning",
+                    f"Battery dropped to {remaining_min * 100:.0f}% (<= {BATTERY_REMAINING_WARN * 100:.0f}%)",
+                    {"min_remaining": remaining_min},
+                )
+            )
+    else:
+        checks_skipped.append({"check": "battery", "reason": "battery_status topic not in log"})
+
+    # 7. Failsafe / arming events.
+    failsafe = _failsafe_events(ulog)
+    if failsafe is None:
+        checks_skipped.append({"check": "failsafe", "reason": "vehicle_status topic not in log"})
+    else:
+        checks_run.append("failsafe")
+        armed_intervals = failsafe["armed_intervals"]
+        for event in failsafe["events"]:
+            etype = event["type"]
+            if etype in ("failsafe", "engine_failure", "mission_failure") and event["to"] is True:
+                findings.append(
+                    _finding(
+                        "failsafe",
+                        "critical",
+                        event["detail"],
+                        {"t_s": event["t_s"], "type": etype},
+                    )
+                )
+            elif etype == "failsafe_nav_state" and event["to"] in ("DESCEND", "TERMINATION"):
+                findings.append(
+                    _finding(
+                        "failsafe",
+                        "critical",
+                        event["detail"],
+                        {"t_s": event["t_s"], "to": event["to"]},
+                    )
+                )
+            elif (
+                etype in ("rc_signal_lost", "data_link_lost")
+                and event["to"] is True
+                and _in_any_interval(event["t_s"], armed_intervals)
+            ):
+                findings.append(
+                    _finding(
+                        "failsafe",
+                        "warning",
+                        f"{etype} while armed",
+                        {"t_s": event["t_s"], "type": etype},
+                    )
+                )
+
+    # 8. Mode thrash (excessive nav_state switching).
+    try:
+        vs = ulog.get_dataset("vehicle_status")
+    except (KeyError, IndexError):
+        vs = None
+    if vs is not None and "nav_state" in vs.data:
+        checks_run.append("mode_thrash")
+        num_changes = len(vs.list_value_changes("nav_state"))
+        if num_changes > MODE_CHANGES_WARN:
+            findings.append(
+                _finding(
+                    "mode_thrash",
+                    "warning",
+                    f"{num_changes} flight-mode changes (>{MODE_CHANGES_WARN}) suggest mode thrash",
+                    {"num_changes": num_changes},
+                )
+            )
+    else:
+        checks_skipped.append({"check": "mode_thrash", "reason": "vehicle_status nav_state not in log"})
+
+    findings.sort(key=lambda f: (_SEVERITY_RANK.get(f["severity"], 9), f["check"]))
+    healthy = not findings
+    return {
+        "file": os.path.basename(path),
+        "duration_s": duration_s,
+        "healthy": healthy,
+        "verdict": "nominal" if healthy else "issues_found",
+        "num_findings": len(findings),
+        "findings": findings,
+        "checks_run": checks_run,
+        "checks_skipped": checks_skipped,
     }
