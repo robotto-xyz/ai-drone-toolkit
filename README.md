@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/banner.jpg" alt="AI Drone Toolkit by Robotto" width="100%" />
+  <img src="docs/assets/banner.png" alt="AI Drone Toolkit by Robotto" width="100%" />
 </p>
 
 # AI Drone Toolkit
